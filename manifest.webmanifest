@@ -1,0 +1,19 @@
+{
+  "name": "最高峰デジタル学習黒板",
+  "short_name": "デジタル黒板",
+  "description": "Webブラウザだけで動く電子黒板。中学数学の作図・測定・関数グラフ・複数ページに対応。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d1f16",
+  "theme_color": "#0d1f16",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

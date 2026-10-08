@@ -1,0 +1,2566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0d1f16">
+    <meta name="description" content="Webブラウザだけで動く電子黒板。中学数学の作図・測定・関数グラフ・複数ページに対応。">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <title>最高峰デジタル学習黒板 - 新バージョン修正版</title>
+    <style>
+        html, body {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            margin: 0; padding: 0; overflow: hidden; background-color: #0d1f16;
+            touch-action: none; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Kaku Gothic ProN", sans-serif; user-select: none; -webkit-user-select: none;
+        }
+        canvas { display: block; position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
+        
+        /* ツールバー基幹 */
+        .toolbar {
+            position: absolute; top: 15px; left: 15px; 
+            display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
+            background-color: rgba(10, 15, 12, 0.97); padding: 8px 12px; box-sizing: border-box; gap: 6px; z-index: 100;
+            border: 2px solid rgba(0, 245, 212, 0.35); border-radius: 16px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.85);
+            max-width: calc(100vw - 30px); max-height: 92vh; overflow-y: auto;
+            transition: left 0.15s cubic-bezier(0.1, 0.8, 0.2, 1), top 0.15s cubic-bezier(0.1, 0.8, 0.2, 1), width 0.15s ease;
+            touch-action: pan-y !important;
+        }
+        .toolbar.tb-vertical { flex-direction: column; flex-wrap: nowrap; width: 165px; max-height: 95vh; padding: 12px 6px; }
+        .toolbar.tb-small { padding: 4px 6px; gap: 4px; }
+        .toolbar.tb-large { padding: 14px 18px; gap: 10px; }
+        
+        .handle {
+            width: 22px; display: flex; align-items: center; justify-content: center;
+            color: #00f5d4; cursor: move; font-size: 20px; border-right: 2px solid rgba(255,255,255,0.15); padding-right: 6px; font-weight: bold; flex-shrink: 0;
+        }
+        .toolbar.tb-vertical .handle { width: 100%; height: 22px; border-right: none; border-bottom: 2px solid rgba(255,255,255,0.15); padding-bottom: 6px; }
+        
+        .tool-group {
+            display: flex; flex-direction: row; align-items: center; gap: 4px;
+            border-right: 1px solid rgba(255, 255, 255, 0.15); padding-right: 6px; flex-shrink: 0;
+        }
+        .tool-group.advanced-feature { display: flex; }
+        
+        /* 数学関連の3つのグループは初期状態で非表示に設定 */
+        .math-group { display: none; }
+        
+        .toolbar.tb-vertical .tool-group {
+            flex-direction: column; align-items: stretch; width: 100%; border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.15); padding-bottom: 6px;
+        }
+        .tool-group:last-child { border-right: none; border-bottom: none; padding-right: 0; padding-bottom: 0; }
+        
+        .group-content { display: flex; flex-direction: row; gap: 4px; align-items: center; }
+        .toolbar.tb-vertical .group-content { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; width: 100%; }
+        #group-presets .group-content { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+        .toolbar.tb-vertical #group-presets .group-content { grid-template-columns: repeat(2, 1fr); }
+        
+        .group-label {
+            color: #00f5d4; font-size: 10px; font-weight: bold; writing-mode: vertical-rl; text-orientation: mixed;
+            padding: 4px 2px; border-radius: 4px; background: rgba(255,255,255,0.03); text-align: center; flex-shrink: 0;
+        }
+        .toolbar.tb-vertical .group-label { writing-mode: horizontal-tb; text-align: left; width: 100%; padding: 2px 4px; grid-column: span 2; }
+        
+        .color-container { display: flex; gap: 4px; flex-shrink: 0; }
+        .toolbar.tb-vertical .color-container { grid-column: span 2; justify-content: space-between; width: 100%; }
+        .color-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #ffffff; cursor: pointer; flex-shrink: 0; box-sizing: border-box; }
+        .color-white { background-color: #ffffff; }
+        .color-red { background-color: #ff4d4d; }
+        .color-yellow{ background-color: #ffff00; }
+        .color-blue { background-color: #00b4d8; }
+        
+        .select-custom {
+            background: #151515; color: white; border: 1px solid #444; border-radius: 6px;
+            font-size: 11px; height: 44px; padding: 0 2px; font-weight: bold; outline: none; max-width: 90px; box-sizing: border-box; flex-shrink: 0;
+        }
+        .toolbar.tb-vertical .select-custom { max-width: 100%; width: 100%; grid-column: span 2; height: 30px; }
+        
+        .btn {
+            height: 46px; padding: 2px 4px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+            cursor: pointer; color: white; font-size: 10.5px; font-weight: bold;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); min-width: 62px; box-sizing: border-box; white-space: nowrap; flex-shrink: 0; text-align: center; line-height: 1.2;
+        }
+        .toolbar.tb-vertical .btn { width: 100%; min-width: 0; height: 40px; font-size: 10px; }
+        
+        .btn-draw { background-color: #1a5276; }
+        .btn-operate { background-color: #b7950b; }
+        .btn-preset { background-color: #117a65; }
+        .btn-grouping{ background-color: #6c3483; }
+        .btn-bg { background-color: #1e8449; }
+        .btn-file { background-color: #566573; }
+        .btn-eraser { background-color: #7b241c; }
+        .btn-history { background-color: #2c3e50; }
+        .btn-theorem { background-color: #d35400; }
+        .btn-close { background-color: #424949; color: #ffffd1; }
+        .btn-adv-toggle { background-color: #4a235a; border: 1px solid #00f5d4; color: #00f5d4; }
+        
+        /* 科目切り替えボタンのスタイル */
+        .btn-subject { background-color: #2e86c1; border: 1px solid #b3e5fc; color: #b3e5fc; }
+        .btn-subject.active { background-color: #d35400; border: 1px solid #ffcc80; color: #ffcc80; }
+        
+        .active { border: 2.5px solid #00f5d4 !important; box-shadow: 0 0 12px #00f5d4 !important; transform: scale(1.02); }
+        
+        .modal {
+            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(15, 20, 15, 0.98); border: 2px solid #00f5d4; border-radius: 14px;
+            padding: 20px; color: white; z-index: 1000; box-shadow: 0 25px 60px rgba(0,0,0,0.9);
+            width: 320px; box-sizing: border-box; font-size: 13px;
+        }
+        .corner-choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .btn-corner { padding: 10px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; font-weight: bold; cursor: pointer; text-align: center; }
+        .btn-corner:hover { background: #00f5d4; color: black; }
+
+        .grid-settings-modal {
+            width: min(460px, calc(100vw - 28px));
+            max-height: min(86vh, 720px);
+            overflow-y: auto;
+        }
+        .grid-settings-title {
+            display:flex; align-items:center; justify-content:space-between;
+            color:#00f5d4; font-weight:bold; font-size:16px;
+            border-bottom:1px solid #2a523a; padding-bottom:8px; margin-bottom:12px;
+        }
+        .grid-setting-row {
+            display:grid; grid-template-columns: 110px 1fr 58px;
+            gap:8px; align-items:center; margin:10px 0;
+        }
+        .grid-setting-row label { color:#ddd; font-weight:bold; }
+        .grid-setting-row input[type="range"] { width:100%; accent-color:#00f5d4; }
+        .grid-setting-value {
+            background:#050505; border:1px solid #444; border-radius:6px;
+            padding:5px 4px; text-align:center; color:#ffff00; font-family:monospace;
+        }
+        .grid-preset-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:12px 0; }
+        .grid-preset-btn {
+            padding:8px 4px; border-radius:7px; border:1px solid #444;
+            background:#222; color:#fff; font-weight:bold; cursor:pointer;
+        }
+        .grid-preset-btn:hover { background:#00f5d4; color:#000; }
+        .grid-setting-check { display:flex; align-items:center; gap:7px; margin:10px 0; color:#ddd; }
+        .grid-settings-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+        .grid-settings-actions button {
+            padding:8px 12px; border-radius:7px; border:1px solid #555;
+            background:#252525; color:#fff; font-weight:bold; cursor:pointer;
+        }
+        .grid-settings-actions .primary { background:#117a65; border-color:#16a085; }
+        @media (max-width: 700px) {
+            .grid-setting-row { grid-template-columns: 92px 1fr 52px; }
+            .grid-settings-modal { padding:14px; }
+        }
+
+        .floating-trigger-btn {
+            display: none; position: fixed; width: 52px; height: 52px; border-radius: 12px;
+            background-color: rgba(10, 15, 12, 0.96); border: 2.5px solid #00f5d4;
+            color: #00f5d4; font-size: 20px; cursor: pointer; z-index: 999; align-items: center; justify-content: center;
+        }
+        
+        /* 情報メーター */
+        .info-panel {
+            position: absolute; bottom: 20px; right: 20px; z-index: 90;
+            background-color: rgba(5, 15, 10, 0.92); padding: 12px; border-radius: 12px;
+            border: 2px solid rgba(0, 245, 212, 0.5); color: white;
+            display: flex; flex-direction: column; gap: 4px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            font-size: 12px; min-width: 290px; max-width: 340px;
+        }
+        .measure-list { max-height: 120px; overflow-y: auto; margin: 0; padding-left: 15px; color: #ffff00; font-family: monospace; font-size: 13px; font-weight: bold; }
+
+        /* 関数パレット */
+        .coord-sub-palette {
+            display: none; position: absolute; bottom: 20px; left: 20px; z-index: 95;
+            background-color: rgba(10, 12, 10, 0.98); border: 2px solid #00f5d4; border-radius: 16px;
+            padding: 14px; width: 360px; box-shadow: 0 15px 40px rgba(0,0,0,0.85);
+            font-size: 12px; color: white;
+        }
+        .palette-title { font-weight: bold; color: #00f5d4; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 6px; margin-bottom: 8px; cursor: pointer;}
+        .palette-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 4px; }
+        .palette-input { background: #050505; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 4px; font-size: 12px; }
+        
+        .fx-display-container { position: relative; width: 100%; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;}
+        .fx-input-native {
+            width: 100%; font-size: 16px; font-weight: bold; color: #ffff00;
+            background: #000; border: 2px solid #00f5d4; padding: 8px; border-radius: 8px;
+            outline: none; box-sizing: border-box; text-align: left; font-family: monospace;
+        }
+        
+        .fraction-sync-display {
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            background: rgba(0,0,0,0.5); border: 1px solid #2a3a30; padding: 6px; border-radius: 8px; margin-bottom: 2px;
+        }
+        .sync-label { font-size: 11px; color: #aaa; }
+        .sync-math-view { display: inline-flex; align-items: center; font-size: 18px; font-weight: bold; font-family: monospace; }
+        .sync-fraction-block { display: inline-flex; flex-direction: column; align-items: center; padding: 0 4px; min-width: 25px; }
+        .sync-num { color: #00f5d4; text-align: center; min-height: 18px; }
+        .sync-den { color: #ff4d4d; text-align: center; min-height: 18px; }
+        .sync-line { width: 100%; height: 2px; background-color: #fff; margin: 2px 0; }
+        
+        .fraction-ui-container {
+            display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 8px; border: 1px dashed #444;
+        }
+        .fraction-box { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; width: 55px; }
+        .fraction-box input {
+            width: 100%; text-align: center; background: #000; color: #fff; border: 1px solid #00f5d4; font-size: 13px; padding: 2px 0; border-radius: 4px;
+        }
+        .fraction-line { width: 100%; height: 2px; background-color: #00f5d4; margin: 3px 0; }
+
+        .math-x-font { font-family: "Times New Roman", Times, "serif", "Georgia"; font-style: italic; font-weight: bold; color: #ff4d4d; }
+        
+        /* 改善版キーパッドのスタイル */
+        .kids-pad-grid { 
+            display: grid; 
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 5px; 
+            margin-top: 8px; 
+            background: rgba(0,0,0,0.3);
+            padding: 8px;
+            border-radius: 10px;
+            border: 1px solid #222;
+        }
+        .btn-pad { 
+            background: #2a2a2a; 
+            border: 1px solid #444; 
+            color: #ffffff; 
+            border-radius: 6px; 
+            padding: 9px 0; 
+            font-size: 13px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            text-align: center; 
+            user-select: none;
+            transition: background 0.1s, transform 0.05s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        }
+        .btn-pad:active { 
+            background: #00f5d4 !important; 
+            color: #000 !important; 
+            transform: scale(0.95);
+        }
+        .btn-pad-var { background: #1a3a4a; color: #ff9f43; border-color: #2e5b70; font-size: 14px; }
+        .btn-pad-op { background: #3a2e1a; color: #ffd166; border-color: #5c4828; font-size: 14px; }
+        .btn-pad-action { background: #117a65; color: #ffffff; border-color: #16a085; }
+        .btn-pad-clear { background: #552222; color: #ff6666; border-color: #883333; }
+        .btn-pad-back { background: #4a3800; color: #ffcc00; border-color: #775800; }
+        
+        .btn-flip-angle {
+            background: #ff4d4d; color: black; border: none; border-radius: 4px; padding: 2px 6px; 
+            font-size: 11px; font-weight: bold; cursor: pointer; margin-left: 8px; vertical-align: middle;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        }
+        .btn-flip-angle:active { background: #ff1a1a; color: white; }
+    
+/* ===== 拡張版UI ===== */
+.ext-dock{position:fixed;right:18px;top:18px;z-index:250;display:flex;gap:6px;flex-wrap:wrap;max-width:360px;justify-content:flex-end}
+.ext-btn{height:40px;padding:4px 10px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:rgba(15,25,20,.94);color:#fff;font-weight:bold;font-size:11px;cursor:pointer;box-shadow:0 5px 15px rgba(0,0,0,.35)}
+.ext-btn:hover{border-color:#00f5d4}.ext-btn.active{background:#117a65;border-color:#00f5d4}
+.ext-panel{display:none;position:fixed;z-index:1200;right:18px;top:68px;width:min(430px,calc(100vw - 36px));max-height:82vh;overflow:auto;background:rgba(12,18,15,.98);border:2px solid #00f5d4;border-radius:16px;padding:16px;color:#fff;box-shadow:0 25px 70px rgba(0,0,0,.75);box-sizing:border-box}
+.ext-panel.open{display:block}.ext-panel h3{margin:0 0 12px;color:#00f5d4;font-size:16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ext-panel-close{cursor:pointer;color:#fff;font-size:14px;font-weight:normal;line-height:1;padding:4px 7px;border-radius:6px;background:rgba(255,255,255,0.08)}
+.ext-panel-close:hover{background:#00f5d4;color:#000}.ext-row{display:flex;align-items:center;gap:8px;margin:9px 0}.ext-row label{flex:1;font-size:12px}.ext-row input[type=range]{width:170px}.ext-row select,.ext-row input[type=text]{background:#050505;color:#fff;border:1px solid #555;border-radius:6px;padding:7px;min-width:100px}
+.ext-value{width:42px;text-align:right;font-family:monospace;color:#ffff00}.ext-grid-buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.ext-grid-buttons button{padding:9px 5px;background:#18231d;color:#fff;border:1px solid #405247;border-radius:7px;cursor:pointer}.ext-grid-buttons button.active{border-color:#00f5d4;background:#117a65}
+.pagebar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:220;background:rgba(8,14,11,.94);border:1px solid rgba(0,245,212,.45);border-radius:14px;padding:6px 9px;display:flex;align-items:center;gap:6px;box-shadow:0 8px 25px rgba(0,0,0,.5)}
+.pagebar button{background:#26352d;color:#fff;border:1px solid #4a5d52;border-radius:7px;padding:6px 9px;cursor:pointer}.pagebar button:hover{border-color:#00f5d4}.page-title{min-width:115px;text-align:center;font-weight:bold;font-size:12px;color:#00f5d4}
+.lesson-chip{position:fixed;left:18px;top:18px;z-index:230;background:rgba(8,14,11,.9);border:1px solid rgba(0,245,212,.4);border-radius:10px;padding:7px 10px;color:#fff;font-size:11px;box-shadow:0 5px 15px rgba(0,0,0,.35)}
+.lesson-chip b{color:#00f5d4}.cover{display:none;position:fixed;z-index:900;inset:0;background:rgba(5,8,7,.98);color:#fff;align-items:center;justify-content:center;font-size:32px;font-weight:bold;letter-spacing:.05em}.cover.open{display:flex}.cover.left{right:50%;}.cover.right{left:50%;}.cover .cover-close{position:absolute;right:20px;top:20px;font-size:13px;padding:10px 14px;background:#117a65;border:1px solid #00f5d4;color:#fff;border-radius:8px;cursor:pointer}.cover .cover-label{opacity:.65;font-size:16px}
+.toast{position:fixed;left:50%;top:78px;transform:translateX(-50%) translateY(-10px);z-index:1500;background:#0b1711;border:1px solid #00f5d4;color:#fff;padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.quick-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.quick-grid button{padding:10px;background:#1c2921;color:#fff;border:1px solid #415347;border-radius:8px;text-align:left;cursor:pointer}.quick-grid button:hover{border-color:#00f5d4}
+@media(max-width:800px){.ext-dock{right:8px;top:8px;max-width:240px}.ext-btn{height:34px;font-size:10px}.lesson-chip{left:8px;top:48px}.pagebar{bottom:7px}.ext-panel{right:8px;top:54px;width:calc(100vw - 16px)}}
+
+</style>
+</head>
+<body>
+
+<canvas id="blackboard"></canvas>
+
+<button class="floating-trigger-btn" id="toolbarExpandBtn" onclick="expandToolbar()">🛠️</button>
+
+<div class="toolbar" id="myToolbar">
+    <div class="handle" id="myToolbarHandle">⣿</div>
+    
+    <div class="tool-group" id="group-hide">
+        <span class="group-label" id="lbl-hide">画面</span>
+        <div class="group-content">
+            <button class="btn btn-close" onclick="openHideCornerModal()"><span id="txt-close">📥<br>閉じる</span></button>
+        </div>
+    </div>
+
+    <div class="tool-group" id="group-set">
+        <span class="group-label" id="lbl-set">設定</span>
+        <div class="group-content">
+            <button class="btn btn-bg" id="btn-grid-cycle" onclick="cycleGrid()"><span id="txt-grid">🏁<br>背景:通常方眼</span></button>
+            <button class="btn btn-bg" id="btn-grid-settings" onclick="openGridSettings()"><span id="txt-grid-settings">⚙️<br>背景設定</span></button>
+            <div class="color-container">
+                <button class="color-btn color-white active" onclick="changeColor('#ffffff', this)"></button>
+                <button class="color-btn color-red" onclick="changeColor('#ff4d4d', this)"></button>
+                <button class="color-btn color-yellow" onclick="changeColor('#ffff00', this)"></button>
+                <button class="color-btn color-blue" onclick="changeColor('#00b4d8', this)"></button>
+            </div>
+            <select class="select-custom" id="penTypeSelect" onchange="changePenType(this.value)"></select>
+            <select class="select-custom" id="lineStyleSelect" onchange="changeLineStyle(this.value)"></select>
+            <select class="select-custom" id="thicknessSelect" onchange="changeThickness(Number(this.value))"></select>
+        </div>
+    </div>
+    
+    <!-- デフォルト状態で選択・アクティブな手書きボタン -->
+    <div class="tool-group" id="group-draw-base">
+        <span class="group-label" id="lbl-draw-base">描画</span>
+        <div class="group-content">
+            <button class="btn btn-draw active" id="btn-free" onclick="changeMode('free', this)"><span id="txt-free">✏️<br>手書き</span></button>
+        </div>
+    </div>
+    
+    <!-- 「作図」グループ（デフォルト非表示：math-groupクラスを追加） -->
+    <div class="tool-group math-group" id="group-draw">
+        <span class="group-label" id="lbl-draw">作図</span>
+        <div class="group-content">
+            <button class="btn btn-draw" id="btn-plot" onclick="changeMode('plot', this)"><span id="txt-plot">📍<br>点を打つ</span></button>
+            <button class="btn btn-draw" id="btn-segment" onclick="changeMode('segment', this)"><span id="txt-segment">📏<br>線分</span></button>
+            <button class="btn btn-draw" id="btn-line" onclick="changeMode('line', this)"><span id="txt-line">➖<br>直線</span></button>
+            <button class="btn btn-draw" id="btn-ray" onclick="changeMode('ray', this)"><span id="txt-ray">🪶<br>半直線</span></button>
+            <button class="btn btn-draw" id="btn-vector" onclick="changeMode('vector', this)"><span id="txt-vector">➔<br>ベクトル</span></button>
+            <button class="btn btn-draw" id="btn-compass" onclick="changeMode('compass', this)"><span id="txt-compass">🎯◯<br>コンパス</span></button>
+            <button class="btn btn-draw" id="btn-arc" onclick="changeMode('arc', this)"><span id="txt-arc">🌐<br>円弧</span></button>
+            <button class="btn btn-draw" id="btn-parallel" onclick="changeMode('parallel', this)"><span id="txt-parallel">⇄<br>平行線</span></button>
+            <button class="btn btn-draw" id="btn-perpend" onclick="changeMode('perpend', this)"><span id="txt-perpend">┼<br>垂直線</span></button>
+        </div>
+    </div>
+    
+    <!-- 「探求操作」グループ（デフォルト非表示：math-groupクラスを追加） -->
+    <div class="tool-group math-group" id="group-op-integrated">
+        <span class="group-label" id="lbl-op-integrated">探求操作</span>
+        <div class="group-content">
+            <button class="btn btn-operate" id="btn-select" onclick="changeMode('select', this)"><span id="txt-move">🖐️<br>動かす変形</span></button>
+            <button class="btn btn-theorem advanced-feature" id="btn-set-fixed" onclick="changeMode('set-fixed', this)"><span id="txt-fixed">🔒<br>点を固定</span></button>
+            <button class="btn btn-theorem advanced-feature" id="btn-set-bound" onclick="changeMode('set-bound', this)"><span id="txt-bound">⛓️<br>動きの通り道</span></button>
+            <button class="btn btn-grouping advanced-feature" id="btn-lasso" onclick="changeMode('lasso', this)"><span id="txt-lasso">🎯<br>投げ縄選択</span></button>
+            <button class="btn btn-grouping advanced-feature" onclick="createGroupFromSelected()"><span id="txt-makegroup">🔒<br>グループ化</span></button>
+            <button class="btn btn-grouping advanced-feature" onclick="clearSelectedGroup()"><span id="txt-ungroup">🔓<br>解除</span></button>
+            <button class="btn btn-operate" id="btn-measure-len" onclick="changeMode('measure-len', this)"><span id="txt-m_len">📏<br>長さ測定</span></button>
+            <button class="btn btn-operate" id="btn-measure-ang" onclick="changeMode('measure-ang', this)"><span id="txt-m_ang">📐<br>角度測定</span></button>
+        </div>
+    </div>
+    
+    <!-- 「図形教材」グループ（デフォルト非表示：math-groupクラスを追加） -->
+    <div class="tool-group math-group" id="group-presets">
+        <span class="group-label" id="lbl-presets">図形教材</span>
+        <div class="group-content">
+            <button class="btn btn-preset" id="btn-p-triangle" onclick="changeMode('p-triangle', this)"><span id="txt-p_tri">🔺<br>一般の三角形</span></button>
+            <button class="btn btn-preset" id="btn-p-iso-triangle" onclick="changeMode('p-iso-triangle', this)"><span id="txt-p_isotri">📐<br>二等辺三角形</span></button>
+            <button class="btn btn-preset" id="btn-p-equ-triangle" onclick="changeMode('p-equ-triangle', this)"><span id="txt-p_eqtri">🛆<br>正三角形</span></button>
+            <button class="btn btn-preset" id="btn-p-right-triangle" onclick="changeMode('p-right-triangle', this)"><span id="txt-p_rtri">∟⊿<br>直角三角形</span></button>
+            <button class="btn btn-preset" id="btn-p-square" onclick="changeMode('p-square', this)"><span id="txt-p_squ">⬜<br>正方形</span></button>
+            <button class="btn btn-preset" id="btn-p-rhombus" onclick="changeMode('p-rhombus', this)"><span id="txt-p_rhom">💎<br>ひし形</span></button>
+            <button class="btn btn-preset" id="btn-p-trapezoid" onclick="changeMode('p-trapezoid', this)"><span id="txt-p_trap">⏢<br>台形</span></button>
+            <button class="btn btn-preset" id="btn-p-parallelogram" onclick="changeMode('p-parallelogram', this)"><span id="txt-p_para">▱<br>平行四辺形</span></button>
+            <button class="btn btn-theorem advanced-feature" style="background-color: #e65c00;" onclick="setupInscribedAngleTheorem()"><span id="txt-angle-thm">🎡<br>円周角定理</span></button>
+        </div>
+    </div>
+    
+    <!-- 管理・履歴・共通を整理統合した1つの「システム」グループ -->
+    <div class="tool-group" id="group-system-integrated">
+        <span class="group-label" id="lbl-system">システム</span>
+        <div class="group-content">
+            <!-- 数学/標準モード切り替えボタン（初期状態は「数学モードへ」） -->
+            <button class="btn btn-subject active" id="btnAdvancedToggle" onclick="toggleMathMode()"><span id="txt-adv-mode">📐<br>数学モードへ</span></button>
+            <button class="btn btn-eraser" id="btn-eraser" onclick="changeMode('eraser', this)"><span id="txt-eraser">🧼<br>消しゴム</span></button>
+            <button class="btn btn-eraser" style="background-color: #922b21;" onclick="clearBlackboard()"><span id="txt-clear">❌<br>全消去</span></button>
+            <button class="btn btn-history" onclick="handleUndo()"><span id="txt-undo">↩️<br>元に戻す</span></button>
+            <button class="btn btn-history" onclick="handleRedo()"><span id="txt-redo">↪️<br>やり直す</span></button>
+            <button class="btn btn-file" onclick="toggleLayout()"><span id="txt-layout">🔄<br>配置切替</span></button>
+            <button class="btn btn-file" style="background-color: #2e4053;" onclick="saveData()"><span id="txt-save">💾<br>保存</span></button>
+            <button class="btn btn-file" style="background-color: #2e4053;" onclick="triggerJsonUpload()"><span id="txt-load">📤<br>読込</span></button>
+            <button class="btn" style="background-color: #d35400;" onclick="toggleLanguage()">🌐<br>JP/EN</button>
+            <input type="file" id="jsonInput" accept=".json" style="display: none;" onchange="loadData(this)">
+        </div>
+    </div>
+</div>
+
+<div class="coord-sub-palette" id="coordSubPalette">
+    <div class="palette-title" onclick="toggleMinimizePalette()">
+        <span id="lbl-sub-palette-title">📊 しきをつくろう！</span>
+        <span id="paletteMinIcon">▼</span>
+    </div>
+    <div id="paletteContent">
+        <div class="palette-row">
+            <label id="lbl-sub-step">目盛り幅:</label>
+            <select id="subStepUnit" class="palette-input" onchange="syncSubSettings()">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+            </select>
+            <div id="lbl-sub-show-num-wrap">
+                <label id="lbl-sub-show-num"><input type="checkbox" id="subShowLabels" checked onchange="syncSubSettings()"> すうじ</label>
+            </div>
+        </div>
+        
+        <div style="margin-top:6px; border-top:1px solid #333; padding-top:6px;">
+            <label id="lbl-sub-expr-head" style="font-weight:bold; color:#00f5d4; display:block; margin-bottom:4px;">📈 グラフのしき (<span class="math-x-font">y</span> = ...)</label>
+            <div class="fx-display-container">
+                <div class="fraction-sync-display">
+                    <span class="sync-label">いまのしき:</span>
+                    <div class="sync-math-view">
+                        <span style="color:#ffff00; margin-right:4px;">y = </span>
+                        <div class="sync-fraction-block" id="syncFracBlock" style="display:none;">
+                            <div class="sync-num" id="syncViewNum"></div>
+                            <div class="sync-line"></div>
+                            <div class="sync-den" id="syncViewDen"></div>
+                        </div>
+                        <span id="syncViewNormalText" style="color:#00f5d4;">0.2</span>
+                        <span class="math-x-font" id="syncViewXText" style="margin-left:2px;">x²</span>
+                    </div>
+                </div>
+                <input type="text" id="kidsFormulaInput" class="fx-input-native" value="0.2*x*x" oninput="onNativeFormulaInput()">
+                
+                <div class="fraction-ui-container">
+                    <span style="font-size:11px; color:#aaa;">ぶんすう:</span>
+                    <div class="fraction-box">
+                        <input type="text" id="fracNumerator" placeholder="分子" oninput="onFractionFieldInput()">
+                        <div class="fraction-line"></div>
+                        <input type="text" id="fracDenominator" placeholder="分母" oninput="onFractionFieldInput()">
+                    </div>
+                    <span style="font-size:12px; color:#ffff00; font-weight:bold;" id="lbl-fraction-x-type">x²</span>
+                    <button class="btn-pad btn-pad-action" style="padding:4px 8px; font-size:11px;" onclick="applyFractionToFormula()">適用</button>
+                </div>
+            </div>
+            
+            <!-- 改善版キーパッドのコンテナ -->
+            <div class="kids-pad-grid" id="kidsKeyboardGrid"></div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal grid-settings-modal" id="gridSettingsModal">
+    <div class="grid-settings-title">
+        <span id="grid-settings-title">⚙️ 背景・マス目の設定</span>
+        <span onclick="closeModal('gridSettingsModal')" style="cursor:pointer;">✕</span>
+    </div>
+    <div style="color:#aaa; font-size:11px; margin-bottom:8px;" id="grid-settings-help">
+        背景の種類ごとに大きさと濃さを調整できます。図形の大きさ・座標は変わりません。
+    </div>
+
+    <div class="grid-setting-row">
+        <label id="grid-label-mesh">通常方眼</label>
+        <input type="range" id="gridMeshSize" min="16" max="100" step="1" value="40"
+               oninput="updateGridSetting('meshSize', this.value)">
+        <span class="grid-setting-value" id="gridMeshSizeValue">40</span>
+    </div>
+    <div class="grid-setting-row">
+        <label id="grid-label-four">4線の間隔</label>
+        <input type="range" id="gridFourLineGap" min="10" max="80" step="1" value="12"
+               oninput="updateGridSetting('fourLineGap', this.value)">
+        <span class="grid-setting-value" id="gridFourLineGapValue">12</span>
+    </div>
+    <div class="grid-setting-row">
+        <label id="grid-label-cross">十字ますの倍率</label>
+        <input type="range" id="gridCrossSize" min="1" max="5" step="0.1" value="2.5"
+               oninput="updateGridSetting('crossCellSize', this.value)">
+        <span class="grid-setting-value" id="gridCrossSizeValue">2.5×</span>
+    </div>
+    <div class="grid-setting-row">
+        <label id="grid-label-coord">座標ラベル間隔</label>
+        <input type="range" id="gridCoordinateScale" min="0.5" max="5" step="0.5" value="1"
+               oninput="updateGridSetting('coordinateScale', this.value)">
+        <span class="grid-setting-value" id="gridCoordinateScaleValue">1.0</span>
+    </div>
+    <div class="grid-setting-row">
+        <label id="grid-label-opacity">濃さ</label>
+        <input type="range" id="gridOpacity" min="0.02" max="0.35" step="0.01" value="0.08"
+               oninput="updateGridSetting('opacity', this.value)">
+        <span class="grid-setting-value" id="gridOpacityValue">0.08</span>
+    </div>
+
+    <label class="grid-setting-check">
+        <input type="checkbox" id="gridSnapEnabled" onchange="updateGridSetting('snapEnabled', this.checked)">
+        <span id="grid-label-snap">図形を方眼に吸着する</span>
+    </label>
+
+    <div style="font-weight:bold; color:#00f5d4; margin-top:10px;" id="grid-preset-title">かんたん設定</div>
+    <div class="grid-preset-grid">
+        <button class="grid-preset-btn" onclick="setGridPreset('small')">小さめ</button>
+        <button class="grid-preset-btn" onclick="setGridPreset('medium')">標準</button>
+        <button class="grid-preset-btn" onclick="setGridPreset('large')">大きめ</button>
+    </div>
+
+    <div class="grid-settings-actions">
+        <button onclick="resetGridSettings()" id="grid-reset-btn">初期値に戻す</button>
+        <button class="primary" onclick="closeModal('gridSettingsModal')" id="grid-close-btn">閉じる</button>
+    </div>
+</div>
+
+<div class="modal" id="cornerHideModal">
+    <div><span id="txt-mdl-corner-title">格納する場所を選んでください</span> <span onclick="closeModal('cornerHideModal')" style="cursor:pointer;float:right;">✕</span></div>
+    <div class="corner-choice-grid">
+        <button class="btn-corner" onclick="hideToolbarTo('tl')">↖️ 左上</button>
+        <button class="btn-corner" onclick="hideToolbarTo('tr')">↗️ 右上</button>
+        <button class="btn-corner" onclick="hideToolbarTo('bl')">↙️ 左下</button>
+        <button class="btn-corner" onclick="hideToolbarTo('br')">↘️ 右下</button>
+    </div>
+</div>
+
+<div class="info-panel">
+    <div style="font-weight:bold; color:#00f5d4; border-bottom:1px solid #2a523a; padding-bottom:4px; margin-bottom:4px;">📐 <span id="lbl-infotitle">情報メーター</span></div>
+    <div id="measure-instructions" style="color: #bbb; font-size: 11px; margin-bottom: 4px;"></div>
+    <ul id="measure-output" class="measure-list"></ul>
+</div>
+
+
+<div class="lesson-chip" id="lessonChip">📘 <b>授業モード</b>　中学校数学</div>
+<div class="ext-dock" id="extDock">
+  <button class="ext-btn" onclick="openExtPanel('bg')">🎨 背景</button>
+  <button class="ext-btn" onclick="openExtPanel('pages')">📚 黒板ページ</button>
+  <button class="ext-btn" onclick="openExtPanel('lesson')">🎓 授業モード</button>
+  <button class="ext-btn" onclick="openExtPanel('tools')">🧰 授業ツール</button>
+</div>
+<div class="ext-panel" id="ext-bg">
+  <h3>🎨 背景・方眼設定 <span class="ext-panel-close" onclick="closeExtPanels()">✕</span></h3>
+  <div class="ext-grid-buttons" id="gridChoiceButtons">
+    <button data-grid="0" onclick="setGridType(0)">なし</button><button data-grid="1" onclick="setGridType(1)">方眼</button><button data-grid="2" onclick="setGridType(2)">4線</button><button data-grid="3" onclick="setGridType(3)">十字ます</button><button data-grid="4" onclick="setGridType(4)">座標平面</button>
+  </div>
+  <div class="ext-row"><label>基本マス</label><input id="bgBase" type="range" min="16" max="100" step="1"><span class="ext-value" id="bgBaseVal"></span></div>
+  <div class="ext-row"><label>4線の間隔</label><input id="bgFour" type="range" min="10" max="80" step="1"><span class="ext-value" id="bgFourVal"></span></div>
+  <div class="ext-row"><label>十字ますの倍率</label><input id="bgCross" type="range" min="1" max="5" step="0.1"><span class="ext-value" id="bgCrossVal"></span></div>
+  <div class="ext-row"><label>背景の濃さ</label><input id="bgOpacity" type="range" min="0.02" max="0.35" step="0.01"><span class="ext-value" id="bgOpacityVal"></span></div>
+  <div class="ext-row"><label>グリッド吸着</label><input id="gridSnap" type="checkbox"> <span>ON</span></div>
+  <div class="ext-row"><label>座標目盛り</label><input id="gridLabels" type="checkbox"> <span>表示</span></div>
+  <button class="ext-btn" onclick="resetBackgroundSettings()">↺ 初期設定に戻す</button>
+</div>
+<div class="ext-panel" id="ext-pages">
+  <h3>📚 黒板ページ <span class="ext-panel-close" onclick="closeExtPanels()">✕</span></h3>
+  <div class="ext-row"><label>ページ名</label><input id="pageNameInput" type="text" placeholder="例：導入・問題提示"></div>
+  <div class="quick-grid"><button onclick="addBlackboardPage()">＋ 新しいページ</button><button onclick="duplicateBlackboardPage()">⧉ ページを複製</button><button onclick="renameBlackboardPage()">✎ 名前を変更</button><button onclick="deleteBlackboardPage()">🗑 ページ削除</button></div>
+  <div style="margin-top:12px" id="pageList"></div>
+  <div class="ext-row"><label>自動保存</label><input id="autoSaveToggle" type="checkbox"> <span>ブラウザ内</span></div>
+</div>
+<div class="ext-panel" id="ext-lesson">
+  <h3>🎓 授業モード <span class="ext-panel-close" onclick="closeExtPanels()">✕</span></h3>
+  <div class="ext-row"><label>学年</label><select id="gradeSelect"><option>中学1年</option><option>中学2年</option><option>中学3年</option></select></div>
+  <div class="ext-row"><label>分野</label><select id="unitSelect"><option>数と式</option><option>方程式</option><option>関数</option><option>図形</option><option>データの活用</option></select></div>
+  <div class="quick-grid">
+    <button onclick="lessonPreset('intro')">▶ 10分で使ってみる</button>
+    <button onclick="lessonPreset('geometry')">📐 図形授業</button>
+    <button onclick="lessonPreset('function')">📈 関数授業</button>
+    <button onclick="lessonPreset('proof')">📝 証明授業</button>
+  </div>
+  <p style="font-size:11px;color:#aaa;line-height:1.6">既存の数学機能は残したまま、授業開始時に使う機能だけを前面に出すためのプリセットです。</p>
+</div>
+<div class="ext-panel" id="ext-tools">
+  <h3>🧰 授業ツール <span class="ext-panel-close" onclick="closeExtPanels()">✕</span></h3>
+  <div class="quick-grid">
+    <button onclick="toggleCover('all')">⬛ 黒板を隠す</button><button onclick="toggleCover('left')">◀ 左半分を隠す</button><button onclick="toggleCover('right')">▶ 右半分を隠す</button><button onclick="clearCover()">👁 表示する</button>
+    <button onclick="insertTextBox()">🔤 文字を追加</button><button onclick="addTitleText()">🏷 見出しを追加</button><button onclick="saveLocalSnapshot()">💾 ブラウザ保存</button><button onclick="restoreLocalSnapshot()">↩ ブラウザ復元</button>
+  </div>
+  <hr style="border-color:#29382f;margin:14px 0">
+  <div style="font-size:12px;color:#00f5d4;font-weight:bold">キーボード操作</div>
+  <div style="font-size:11px;color:#bbb;line-height:1.7">Ctrl/Cmd+Z 元に戻す　・　Ctrl/Cmd+Y やり直す<br>← → ページ移動　・　Esc パネルを閉じる<br>Space 黒板を表示/非表示</div>
+</div>
+<div class="pagebar" id="pagebar"><button onclick="prevBlackboardPage()">◀</button><span class="page-title" id="pageTitle">1 / 1</span><button onclick="nextBlackboardPage()">▶</button></div>
+<div class="cover" id="blackboardCover"><button class="cover-close" onclick="clearCover()">👁 表示する</button><span class="cover-label">タップして表示できます</span></div>
+<div class="toast" id="toast"></div>
+
+<script>
+    const canvas = document.getElementById('blackboard');
+    const ctx = canvas.getContext('2d');
+
+    let currentMode = 'free';
+    let currentColor = '#ffffff';
+    let currentThickness = 6;
+    let currentPenType = 'chalk';
+    let currentLineStyle = 'solid'; 
+    let toolbarSizeState = 1; 
+    let layoutState = 0; 
+    let gridType = 1; 
+    let isDrawing = false;
+    let currentLang = 'ja';
+    
+    let isMathModeActive = false;
+    let isAdvancedMode = false;
+
+    let scale = 1.0; let offsetX = 0; let offsetY = 0;
+    let baseGridSize = 40; let coordStepUnit = 1.0; let showCoordLabels = true;
+    // 背景グリッド設定（図形の座標系とは独立して変更可能）
+    let gridSettings = {
+        meshSize: 40,
+        fourLineGap: 18,
+        crossCellSize: 80,
+        coordinateScale: 1.0,
+        opacity: 0.12,
+        snapEnabled: false
+    };
+    // 背景の実際の描画に使われる設定（⚙️背景設定モーダルと🎨背景パネルの両方から共有される実体）
+    const EXT_DEFAULTS = { base: 40, four: 12, cross: 2.5, opacity: .08, snap: false, labels: true };
+    let extBg = { ...EXT_DEFAULTS };
+    let isPaletteMinimized = false;
+
+    let drawings = []; let plots = []; let labelIndex = 0;
+    const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
+    let activeMeasures = []; let groups = [];
+    let selectedPlotIds = []; let selectedDrawingIds = []; 
+    let lassoPoints = []; let eraserPath = [];
+
+    let dragStartMath = null; let liveCurrentMath = null;
+    let grabbedPlot = null; let grabbedArcInfo = null; 
+    let activeFreehandPoints = [];
+    let startX = 0, startY = 0; let currentX = 0, currentY = 0; 
+    let selectedBaseLine = null;
+    let measureClickSequence = [];
+    let hoveredPlotId = null;
+    let hoveredLineId = null;
+    let measureLineSequence = [];
+
+    let undoStack = []; let playbookRedo = [];
+
+    let cachedJsFormula = "0.2*x*x";
+
+    const kidsFormulaInput = document.getElementById('kidsFormulaInput');
+    const syncFracBlock = document.getElementById('syncFracBlock');
+    const syncViewNormalText = document.getElementById('syncViewNormalText');
+    const syncViewXText = document.getElementById('syncViewXText');
+    const lblFractionXType = document.getElementById('lbl-fraction-x-type');
+    const syncViewNum = document.getElementById('syncViewNum');
+    const syncViewDen = document.getElementById('syncViewDen');
+    const fracNumerator = document.getElementById('fracNumerator');
+    const fracDenominator = document.getElementById('fracDenominator');
+    const measureOutput = document.getElementById('measure-output');
+    const measureInstructions = document.getElementById('measure-instructions');
+    const lineStyleSelect = document.getElementById('lineStyleSelect');
+    const penTypeSelect = document.getElementById('penTypeSelect');
+    const thicknessSelect = document.getElementById('thicknessSelect');
+    const btnAdvancedToggle = document.getElementById('btnAdvancedToggle');
+    const coordSubPalette = document.getElementById('coordSubPalette');
+
+    let lastFocusedInput = kidsFormulaInput;
+    [kidsFormulaInput, fracNumerator, fracDenominator].forEach(inputEl => {
+        if(inputEl) {
+            inputEl.addEventListener('focus', () => { lastFocusedInput = inputEl; });
+        }
+    });
+
+    measureOutput.addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('btn-flip-angle')) {
+            e.stopPropagation();
+            e.preventDefault();
+            const idx = parseInt(e.target.getAttribute('data-idx'), 10);
+            toggleAngleFlip(idx);
+        }
+    });
+
+    function windowResize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', windowResize);
+    windowResize();
+
+    function tick() {
+        requestAnimationFrame(tick);
+        drawAll();
+    }
+
+    const langDict = {
+        ja: {
+            "lbl-hide": "画面", "txt-close": "📥<br>閉じる", "txt-mdl-corner-title": "格納する場所を選んでください",
+            "lbl-set": "設定", "lbl-draw": "作図", "lbl-op-integrated": "探求操作", "lbl-presets": "図形教材",
+            "lbl-system": "システム", "lbl-draw-base": "描画", "lbl-infotitle": "情報メーター", 
+            "lbl-sub-palette-title": "📊 しきをつくろう！", "lbl-sub-step": "目盛り幅:", "lbl-sub-show-num": "すうじ", "lbl-sub-expr-head": "📈 グラフのしき (y = ...)",
+            "txt-free": "✏️<br>手書き", "txt-plot": "📍<br>点を打つ", "txt-segment": "📏<br>線分", "txt-line": "➖<br>直線",
+            "txt-ray": "🪶<br>半直線", "txt-vector": "➔<br>ベクトル", "txt-compass": "🎯◯<br>コンパス", "txt-arc": "🌐<br>円弧",
+            "txt-parallel": "⇄<br>平行線", "txt-perpend": "┼<br>垂直線", "txt-fixed": "🔒<br>点を固定", "txt-bound": "⛓️<br>動きの通り道",
+            "txt-p_tri": "🔺<br>一般の三角形", "txt-p_isotri": "📐<br>二等辺三角形", "txt-p_eqtri": "🛆<br>正三角形", "txt-p_rtri": "∟⊿<br>直角三角形", "txt-p_squ": "⬜<br>正方形",
+            "txt-p_rhom": "💎<br>ひし形", "txt-p_trap": "⏢<br>台形", "txt-p_para": "▱<br>平行四辺形",
+            "txt-move": "🖐️<br>動かす変形", "txt-m_len": "📏<br>長さ測定", "txt-m_ang": "📐<br>角度測定",
+            "txt-lasso": "🎯<br>投げ縄選択", "txt-makegroup": "🔒<br>グループ化", "txt-ungroup": "🔓<br>解除",
+            "txt-angle-thm": "🎡<br>円周角定理", "txt-grid": "🏁<br>背景変更",
+            "txt-grid-settings": "⚙️<br>背景設定",
+            "txt-undo": "↩️<br>元に戻す", "txt-redo": "↪️<br>やり直す", "txt-layout": "🔄<br>配置切替",
+            "txt-save": "💾<br>保存", "txt-load": "📤<br>読込", "txt-eraser": "🧼<br>消しゴム", "txt-clear": "❌<br>全消去",
+            inst_free: "【手書き】画面をドラッグします。速度変化や鉛筆の質感を表現できます。",
+            inst_plot: "【連続点を打つ】クリックしたすべての場所に幾何学の頂点を配置します。",
+            inst_segment: "【線分】定規を使って2点間をまっすぐ結ぶ線を引きます。",
+            inst_line: "【直線】2点間を通る、両側に無限に広がる直線を描きます。",
+            inst_ray: "【半直線】始点から引き始め、2点目方向へ無限に伸びる光線を描きます。",
+            inst_vector: "【ベクトル】向きと大きさをもった矢印付き線分を描きます。",
+            inst_compass: "【コンパス】中心を決定後、外側へ回すようにドラッグしてきれいな円を描きます。",
+            inst_arc: "【円弧】中心から半径を指定して円の一部を描きます。動かすモードで端点を回せます。",
+            inst_parallel: "【平行線】基準となる線を1つタップし（オレンジに点滅）、配置したい場所へドラッグします。",
+            inst_perpend: "【垂直線】基準となる線を1つタップし（オレンジに点滅）、配置したい場所へドラッグします。",
+            inst_select: "【動かす変形】点や直線、円弧をつかんで動かします。直線系オブジェクトを選択すると数式パレットと同期します。",
+            inst_lasso: "【投げ縄選択】指で滑らかに囲んで複数オブジェクトを選択します。",
+            inst_eraser: "【消しゴム】なぞった線・図形を消去します。円・円弧はこすった部分が分解・削除されます。",
+            inst_fixed: "【点を固定】タップした頂点の位置を赤くロックし、動かなくします。",
+            inst_bound: "【動きの通り道】点を選び円をタップすると、その円周上のみ動くようになります。",
+            confirm_clear: "黒板のすべての内容（幾何データ、測定、手書き）を完全に消去しますか？"
+        },
+        en: {
+            "lbl-hide": "Screen", "txt-close": "📥<br>Hide", "txt-mdl-corner-title": "Select corner destination to minimize",
+            "lbl-set": "Config", "lbl-draw": "Draw", "lbl-op-integrated": "Explore", "lbl-presets": "Shapes",
+            "lbl-system": "System", "lbl-draw-base": "Sketch", "lbl-infotitle": "Data Meter",
+            "lbl-sub-palette-title": "📊 Build Formula!", "lbl-sub-step": "Step:", "lbl-sub-show-num": "Labels", "lbl-sub-expr-head": "📈 Graph Formula (y = ...)",
+            "txt-free": "✏️<br>Freehand", "txt-plot": "📍<br>Point", "txt-segment": "📏<br>Segment", "txt-line": "➖<br>Line",
+            "txt-ray": "🪶<br>Ray", "txt-vector": "➔<br>Vector", "txt-compass": "🎯◯<br>Compass", "txt-arc": "🌐<br>Arc",
+            "txt-parallel": "⇄<br>Parallel", "txt-perpend": "┼<br>Perpend", "txt-fixed": "🔒<br>Lock Pt", "txt-bound": "⛓️<br>Orbit Path",
+            "txt-p_tri": "🔺<br>Triangle", "txt-p_isotri": "📐<br>Isosceles", "txt-p_eqtri": "🛆<br>Equilateral", 
+            "txt-p_rtri": "∟⊿<br>Right Tri", "txt-p_squ": "⬜<br>Square",
+            "txt-p_rhom": "💎<br>Rhombus", "txt-p_trap": "⏢<br>Trapezoid", "txt-p_para": "▱<br>Parallelogram",
+            "txt-move": "🖐️<br>Morph/Move", "txt-m_len": "📏<br>Length", "txt-m_ang": "📐<br>Angle",
+            "txt-lasso": "🎯<br>Lasso", "txt-makegroup": "🔒<br>Group", "txt-ungroup": "🔓<br>Ungroup",
+            "txt-angle-thm": "🎡<br>Inscribed Thm", "txt-grid": "🏁<br>Change BG",
+            "txt-grid-settings": "⚙️<br>Grid Settings",
+            "txt-undo": "↩️<br>Undo", "txt-redo": "↪️<br>Redo", "txt-layout": "🔄<br>Layout",
+            "txt-save": "💾<br>Save", "txt-load": "📤<br>Load", "txt-eraser": "🧼<br>Eraser", "txt-clear": "❌<br>Clear All",
+            inst_free: "Freehand: Drag canvas. Simulated chalk/pencil textures active.",
+            inst_plot: "Plot Point: Places continuous geometric vertices upon canvas taps.",
+            inst_segment: "Segment: Drag straight line between two locked vertices.",
+            inst_line: "Line: Extends infinitely through 2 selected points.",
+            inst_ray: "Ray: Originates at first point, extending infinitely through second.",
+            inst_vector: "Vector: Draws directional arrow line mapping vector space.",
+            inst_compass: "Compass: Select center vertex then rotate to sweep true circles.",
+            inst_arc: "Arc: Sweep arc curves. Adjust terminal angles using morph tool.",
+            inst_parallel: "Parallel: Select base line (flashes orange), then drag target parallel track.",
+            inst_perpend: "Perpend: Select base line (flashes orange), then drag true orthogonal track.",
+            inst_select: "Morph/Move: Drag points or linear elements. Selecting lines links to the formula palette.",
+            inst_lasso: "Lasso Select: Loop smooth continuous enclosures to select groups.",
+            inst_eraser: "Eraser: Scrub components out. Circle / linear arcs slice back or clear dynamically.",
+            inst_fixed: "Lock Point: Freeze chosen vertex anchor into non-movable coordinate state.",
+            inst_bound: "Orbit Path: Bind dynamic points to track limited purely inside circle paths.",
+            confirm_clear: "Are you sure you want to completely wipe the blackboard content?"
+        }
+    };
+
+    const selectOptions = {
+        ja: {
+            penType: [{ value: 'chalk', text: '🖍️ チョーク' }, { value: 'pencil', text: '✏️ 鉛筆スタイル' }, { value: 'brush', text: '🖌️ 毛筆スタイル' }, { value: 'highlighter', text: '🖊️ 蛍光ペン' }, { value: 'neon', text: '✨ ネオンペン' }],
+            lineStyle: [{ value: 'solid', text: '━ 実線' }, { value: 'dashed', text: '--- 破線' }],
+            thickness: [{ value: '3', text: '太さ: 細' }, { value: '6', text: '太さ: 中' }, { value: '12', text: '太さ: 太' }, { value: '24', text: '太さ: 極太' }]
+        },
+        en: {
+            penType: [{ value: 'chalk', text: '🖍️ Chalk' }, { value: 'pencil', text: '✏️ Pencil Style' }, { value: 'brush', text: '🖌️ Ink Brush' }, { value: 'highlighter', text: '🖊️ Highlighter' }, { value: 'neon', text: '✨ Neon Glow' }],
+            lineStyle: [{ value: 'solid', text: '━ Solid' }, { value: 'dashed', text: '--- Dashed' }],
+            thickness: [{ value: '3', text: 'Size: Thin' }, { value: '6', text: 'Size: Normal' }, { value: '12', text: 'Size: Thick' }, { value: '24', text: 'Size: Huge' }]
+        }
+    };
+
+    function openHideCornerModal() { document.getElementById('cornerHideModal').style.display = 'block'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    
+    function hideToolbarTo(corner) {
+        closeModal('cornerHideModal');
+        const tb = document.getElementById('myToolbar');
+        const btn = document.getElementById('toolbarExpandBtn');
+        tb.style.display = 'none'; btn.style.display = 'flex';
+        btn.style.top = btn.style.left = btn.style.right = btn.style.bottom = 'auto';
+        if (corner === 'tl') { btn.style.top = '12px'; btn.style.left = '12px'; }
+        else if (corner === 'tr') { btn.style.top = '12px'; btn.style.right = '12px'; }
+        else if (corner === 'bl') { btn.style.bottom = '12px'; btn.style.left = '12px'; }
+        else if (corner === 'br') { btn.style.bottom = '12px'; btn.style.right = '12px'; }
+    }
+    function expandToolbar() {
+        document.getElementById('myToolbar').style.display = 'flex';
+        document.getElementById('toolbarExpandBtn').style.display = 'none';
+    }
+
+    function toggleMathMode() {
+        isMathModeActive = !isMathModeActive;
+        const mathGroups = document.querySelectorAll('.math-group');
+        const toggleBtnSpan = document.querySelector('#btnAdvancedToggle span');
+        
+        if (isMathModeActive) {
+            mathGroups.forEach(el => el.style.display = 'flex');
+            toggleBtnSpan.innerHTML = currentLang === 'ja' ? '📐<br>標準モードへ' : '📐<br>To Standard';
+            btnAdvancedToggle.style.backgroundColor = '#117a65';
+        } else {
+            mathGroups.forEach(el => el.style.display = 'none');
+            toggleBtnSpan.innerHTML = currentLang === 'ja' ? '📐<br>数学モードへ' : '📐<br>To Math';
+            btnAdvancedToggle.style.backgroundColor = '#4a235a';
+            if (currentMode !== 'free' && currentMode !== 'eraser') {
+                changeMode('free', document.getElementById('btn-free'));
+            }
+        }
+    }
+
+    function onNativeFormulaInput() {
+        let val = kidsFormulaInput.value;
+        cachedJsFormula = translateKidsToJs(val);
+        parseAndSyncFractionDisplay(val);
+    }
+    
+    function onFractionFieldInput() {
+        const num = fracNumerator.value;
+        const den = fracDenominator.value;
+        let currentExpr = kidsFormulaInput.value;
+        let xPart = " * x * x";
+        if (currentExpr.includes('x') && !currentExpr.includes('x*x') && !currentExpr.includes('x²')) {
+            xPart = " * x";
+        } else if (!currentExpr.includes('x')) {
+            xPart = "";
+        }
+        kidsFormulaInput.value = (num || den) ? `(${num || '?'}/${den || '?'})${xPart}` : `0.2${xPart}`;
+        cachedJsFormula = translateKidsToJs(kidsFormulaInput.value);
+        parseAndSyncFractionDisplay(kidsFormulaInput.value);
+    }
+
+    function parseAndSyncFractionDisplay(str) {
+        const match = str.match(/\(([^)]+)\/([^)]+)\)/);
+        
+        let suffix = "";
+        if (str.includes('x*x') || str.includes('x²')) suffix = "x²";
+        else if (str.includes('x')) suffix = "x";
+        
+        syncViewXText.innerText = suffix;
+        lblFractionXType.innerText = suffix ? suffix : "x²";
+
+        if (match) {
+            syncFracBlock.style.display = 'inline-flex'; syncViewNormalText.style.display = 'none';
+            syncViewNum.innerText = match[1];
+            syncViewDen.innerText = match[2];
+            if (document.activeElement?.id !== 'fracNumerator' && document.activeElement?.id !== 'fracDenominator') {
+                fracNumerator.value = match[1] === '?' ? '' : match[1];
+                fracDenominator.value = match[2] === '?' ? '' : match[2];
+            }
+        } else {
+            syncFracBlock.style.display = 'none'; syncViewNormalText.style.display = 'inline';
+            let parsedVal = str.split('*')[0] || str;
+            syncViewNormalText.innerText = parsedVal.replace(/[()]/g, '');
+        }
+        syncViewXText.style.display = suffix ? 'inline' : 'none';
+    }
+
+    /* カーソル位置への高精度文字挿入処理 */
+    function insertAtCursor(targetInput, strToInsert) {
+        if (!targetInput) targetInput = kidsFormulaInput;
+        const start = targetInput.selectionStart || targetInput.value.length;
+        const end = targetInput.selectionEnd || targetInput.value.length;
+        const oldVal = targetInput.value;
+        targetInput.value = oldVal.substring(0, start) + strToInsert + oldVal.substring(end);
+        targetInput.selectionStart = targetInput.selectionEnd = start + strToInsert.length;
+        targetInput.focus();
+    }
+
+    function backspaceAtCursor(targetInput) {
+        if (!targetInput) targetInput = kidsFormulaInput;
+        const start = targetInput.selectionStart || targetInput.value.length;
+        const end = targetInput.selectionEnd || targetInput.value.length;
+        const oldVal = targetInput.value;
+        if (start !== end) {
+            targetInput.value = oldVal.substring(0, start) + oldVal.substring(end);
+            targetInput.selectionStart = targetInput.selectionEnd = start;
+        } else if (start > 0) {
+            targetInput.value = oldVal.substring(0, start - 1) + oldVal.substring(start);
+            targetInput.selectionStart = targetInput.selectionEnd = start - 1;
+        }
+        targetInput.focus();
+    }
+
+    /* 改良版キーパッドの描画とイベント処理 */
+    function renderKidsKeyboard() {
+        const container = document.getElementById('kidsKeyboardGrid'); 
+        container.innerHTML = '';
+        
+        // 5列構成の最適化キーレイアウト
+        const keys = [
+            { k: '7', label: '7' }, { k: '8', label: '8' }, { k: '9', label: '9' }, { k: 'x', label: 'x', cls: 'btn-pad-var' }, { k: 'x²', label: 'x²', cls: 'btn-pad-var' },
+            { k: '4', label: '4' }, { k: '5', label: '5' }, { k: '6', label: '6' }, { k: '+', label: '＋', cls: 'btn-pad-op' }, { k: '-', label: '－', cls: 'btn-pad-op' },
+            { k: '1', label: '1' }, { k: '2', label: '2' }, { k: '3', label: '3' }, { k: '*', label: '×', cls: 'btn-pad-op' }, { k: '/', label: '÷', cls: 'btn-pad-op' },
+            { k: '0', label: '0' }, { k: '.', label: '．' }, { k: '(', label: '(', cls: 'btn-pad-op' }, { k: ')', label: ')', cls: 'btn-pad-op' }, { k: 'BACK', label: '⌫', cls: 'btn-pad-back' },
+            { k: 'CLEAR', label: currentLang === 'ja'?'全消去':'Clear', cls: 'btn-pad-clear', span: 5 }
+        ];
+
+        keys.forEach(item => {
+            const btn = document.createElement('button'); 
+            btn.className = 'btn-pad ' + (item.cls || '');
+            if (item.span) btn.style.gridColumn = `span ${item.span}`;
+            
+            if (item.k === 'x' || item.k === 'x²') {
+                btn.innerHTML = `<span class="math-x-font">${item.label}</span>`;
+            } else {
+                btn.innerHTML = item.label;
+            }
+
+            btn.onclick = (e) => {
+                e.preventDefault();
+                let activeEl = (lastFocusedInput && (lastFocusedInput === fracNumerator || lastFocusedInput === fracDenominator || lastFocusedInput === kidsFormulaInput)) ? lastFocusedInput : kidsFormulaInput;
+
+                if (item.k === 'CLEAR') { 
+                    kidsFormulaInput.value = ''; 
+                    fracNumerator.value = ''; 
+                    fracDenominator.value = ''; 
+                    kidsFormulaInput.focus();
+                }
+                else if (item.k === 'BACK') { 
+                    backspaceAtCursor(activeEl);
+                }
+                else if (item.k === 'x²') {
+                    if (activeEl === fracNumerator || activeEl === fracDenominator) {
+                        applyXTypeToFormula('*x*x');
+                    } else {
+                        insertAtCursor(kidsFormulaInput, '*x*x');
+                    }
+                }
+                else if (item.k === 'x') {
+                    if (activeEl === fracNumerator || activeEl === fracDenominator) {
+                        applyXTypeToFormula('*x');
+                    } else {
+                        insertAtCursor(kidsFormulaInput, 'x');
+                    }
+                }
+                else { 
+                    insertAtCursor(activeEl, item.k); 
+                }
+
+                if (activeEl === fracNumerator || activeEl === fracDenominator) {
+                    onFractionFieldInput();
+                } else {
+                    onNativeFormulaInput();
+                }
+            };
+            container.appendChild(btn);
+        });
+    }
+
+    function applyXTypeToFormula(xStr) {
+        let currentExpr = kidsFormulaInput.value;
+        let num = fracNumerator.value || '?';
+        let den = fracDenominator.value || '?';
+        
+        let spaceX = xStr ? ` * ${xStr.replace(/\*/g, '')}` : '';
+        if (xStr === '*x*x') spaceX = ' * x * x';
+        if (xStr === '*x') spaceX = ' * x';
+
+        kidsFormulaInput.value = `(${num}/${den})${spaceX}`;
+        cachedJsFormula = translateKidsToJs(kidsFormulaInput.value);
+        parseAndSyncFractionDisplay(kidsFormulaInput.value);
+    }
+
+    function applyFractionToFormula() {
+        let currentExpr = kidsFormulaInput.value;
+        let suffix = " * x * x";
+        if (currentExpr.includes('x') && !currentExpr.includes('x*x') && !currentExpr.includes('x²')) suffix = " * x";
+        if (!currentExpr.includes('x')) suffix = "";
+        
+        kidsFormulaInput.value = `(${fracNumerator.value || '?'}/${fracDenominator.value || '?'})${suffix}`;
+        cachedJsFormula = translateKidsToJs(kidsFormulaInput.value);
+        parseAndSyncFractionDisplay(kidsFormulaInput.value);
+    }
+    
+    function translateKidsToJs(rawStr) { 
+        return rawStr.replace(/×/g, '*').replace(/÷/g, '/').replace(/－/g, '-').replace(/＋/g, '+').replace(/x²/g, '(x*x)').replace(/x/g, 'x'); 
+    }
+    function syncSubSettings() { coordStepUnit = Number(document.getElementById('subStepUnit').value); showCoordLabels = document.getElementById('subShowLabels').checked; }
+    function toggleMinimizePalette() { isPaletteMinimized = !isPaletteMinimized; document.getElementById('paletteContent').style.display = isPaletteMinimized ? 'none' : 'block'; document.getElementById('paletteMinIcon').innerText = isPaletteMinimized ? '▲' : '▼'; }
+
+    function updateDropdowns() {
+        const sets = selectOptions[currentLang];
+        const oldPt = penTypeSelect.value; penTypeSelect.innerHTML = '';
+        sets.penType.forEach(o => penTypeSelect.add(new Option(o.text, o.value))); if([...penTypeSelect.options].some(o => o.value === oldPt)) penTypeSelect.value = oldPt; else currentPenType = penTypeSelect.value;
+        const oldLs = lineStyleSelect.value; lineStyleSelect.innerHTML = '';
+        sets.lineStyle.forEach(o => lineStyleSelect.add(new Option(o.text, o.value))); if([...lineStyleSelect.options].some(o => o.value === oldLs)) lineStyleSelect.value = oldLs;
+        const oldTh = thicknessSelect.value; thicknessSelect.innerHTML = '';
+        sets.thickness.forEach(o => thicknessSelect.add(new Option(o.text, o.value))); if([...thicknessSelect.options].some(o => o.value === oldTh)) thicknessSelect.value = oldTh;
+    }
+
+    function toggleLanguage() {
+        currentLang = (currentLang === 'ja') ? 'en' : 'ja';
+        for (let id in langDict[currentLang]) {
+            const el = document.getElementById(id);
+            if (el && (id.startsWith('txt-') || id.startsWith('lbl-'))) {
+                if (id === 'lbl-sub-show-num') el.innerHTML = `<input type="checkbox" id="subShowLabels" ${document.getElementById('subShowLabels').checked ? 'checked' : ''} onchange="syncSubSettings()"> ${langDict[currentLang][id]}`;
+                else el.innerHTML = langDict[currentLang][id];
+            }
+        }
+        
+        const toggleBtnSpan = document.querySelector('#btnAdvancedToggle span');
+        if (isMathModeActive) {
+            toggleBtnSpan.innerHTML = currentLang === 'ja' ? '📐<br>標準モードへ' : '📐<br>To Standard';
+        } else {
+            toggleBtnSpan.innerHTML = currentLang === 'ja' ? '📐<br>数学モードへ' : '📐<br>To Math';
+        }
+
+        const gridSettingsText = currentLang === 'ja' ? {
+            title: '⚙️ 背景・マス目の設定',
+            help: '背景の種類ごとに大きさと濃さを調整できます。図形の大きさ・座標は変わりません。',
+            mesh: '通常方眼', four: '4線の間隔', cross: '十字ます', coord: '座標方眼',
+            opacity: '濃さ', snap: '図形を方眼に吸着する', preset: 'かんたん設定',
+            reset: '初期値に戻す', close: '閉じる'
+        } : {
+            title: '⚙️ Grid & Background Settings',
+            help: 'Adjust size and visibility for each background without changing figure coordinates.',
+            mesh: 'Mesh Grid', four: '4-Line Gap', cross: 'Cross Cell', coord: 'Coordinate Grid',
+            opacity: 'Opacity', snap: 'Snap geometry to grid', preset: 'Quick Presets',
+            reset: 'Reset', close: 'Close'
+        };
+        const gridTextMap = {
+            'grid-settings-title': gridSettingsText.title,
+            'grid-settings-help': gridSettingsText.help,
+            'grid-label-mesh': gridSettingsText.mesh,
+            'grid-label-four': gridSettingsText.four,
+            'grid-label-cross': gridSettingsText.cross,
+            'grid-label-coord': gridSettingsText.coord,
+            'grid-label-opacity': gridSettingsText.opacity,
+            'grid-label-snap': gridSettingsText.snap,
+            'grid-preset-title': gridSettingsText.preset,
+            'grid-reset-btn': gridSettingsText.reset,
+            'grid-close-btn': gridSettingsText.close
+        };
+        Object.entries(gridTextMap).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        });
+        // titleには閉じる✕が別要素なので innerHTML は使わず textContent を設定
+        const titleEl = document.getElementById('grid-settings-title');
+        if (titleEl) titleEl.textContent = gridSettingsText.title;
+        updateDropdowns(); renderKidsKeyboard(); updateInfoMeterInstructions();
+        cycleGridTextOnly();
+    }
+
+    function updateInfoMeterInstructions() { measureInstructions.innerText = langDict[currentLang]['inst_' + currentMode] || ""; }
+
+    function changeMode(mode, btnEl) {
+        currentMode = mode;
+        document.querySelectorAll('.btn-draw, .btn-operate, .btn-eraser, .btn-theorem, .btn-grouping, .btn-preset').forEach(b => b.classList.remove('active'));
+        if (btnEl) btnEl.classList.add('active'); updateInfoMeterInstructions();
+        selectedBaseLine = null; measureClickSequence = []; measureLineSequence = []; lassoPoints = [];
+    }
+
+    function changeColor(hex, btnEl) { currentColor = hex; document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active')); if (btnEl) btnEl.classList.add('active'); }
+    function changeLineStyle(v) { currentLineStyle = v; if (currentMode === 'select' && selectedDrawingIds.length > 0) { saveHistory(); drawings.forEach(d => { if (selectedDrawingIds.includes(d.id)) d.lineStyle = v; }); } }
+    function changePenType(v) { currentPenType = v; if (currentMode === 'select' && selectedDrawingIds.length > 0) { saveHistory(); drawings.forEach(d => { if (selectedDrawingIds.includes(d.id)) d.penType = v; }); } }
+    function changeThickness(v) { currentThickness = v; if (currentMode === 'select' && selectedDrawingIds.length > 0) { saveHistory(); drawings.forEach(d => { if (selectedDrawingIds.includes(d.id)) d.thickness = v; }); } }
+
+    function cycleGrid() {
+        gridType = (gridType + 1) % 5;
+        cycleGridTextOnly();
+    }
+    function cycleGridTextOnly() {
+        const labelsGrid = {
+            ja: ["🏁 背景: なし", "🏁 背景: 通常方眼", "🏁 背景: 英語4線", "🏁 背景: 十字マス", "🏁 背景: 座標平面軸"],
+            en: ["🏁 BG: Clean", "🏁 BG: Mesh Grid", "🏁 BG: 4-Line", "🏁 BG: Kanji Cross", "🏁 BG: Coordinate Axis"]
+        };
+        document.getElementById('btn-grid-cycle').innerHTML = labelsGrid[currentLang][gridType];
+        coordSubPalette.style.display = (gridType === 4) ? 'block' : 'none';
+        if (gridType === 4) renderKidsKeyboard();
+    }
+
+    function cycleToolbarSize() {
+        toolbarSizeState = (toolbarSizeState + 1) % 3;
+        const tb = document.getElementById('myToolbar');
+        tb.classList.remove('tb-small', 'tb-large');
+        if (toolbarSizeState === 0) tb.classList.add('tb-small');
+        else if (toolbarSizeState === 2) tb.classList.add('tb-large');
+    }
+
+    function openGridSettings() {
+        syncGridSettingsUI();
+        document.getElementById('gridSettingsModal').style.display = 'block';
+    }
+
+    // 注意：背景の実際の見た目は extBg / coordStepUnit で描画されるため、
+    // このモーダルの数値系スライダーはそれらを直接更新する（gridSettings にも反映してJSON保存の互換性を保つ）。
+    // snapEnabled のみ、図形の頂点吸着（snapMathPoint）に使われる独立した設定のため gridSettings 側が本体。
+    function updateGridSetting(key, value) {
+        if (key === 'snapEnabled') {
+            gridSettings.snapEnabled = Boolean(value);
+            extBg.snap = Boolean(value);
+            syncGridSettingsUI();
+            syncBgPanel();
+            cycleGridTextOnly();
+            drawAll();
+            return;
+        } else if (key === 'meshSize') {
+            gridSettings.meshSize = Number(value);
+            extBg.base = Number(value);
+            baseGridSize = extBg.base;
+        } else if (key === 'fourLineGap') {
+            gridSettings.fourLineGap = Number(value);
+            extBg.four = Number(value);
+        } else if (key === 'crossCellSize') {
+            gridSettings.crossCellSize = Number(value);
+            extBg.cross = Number(value);
+        } else if (key === 'coordinateScale') {
+            gridSettings.coordinateScale = Number(value);
+            coordStepUnit = Number(value);
+        } else if (key === 'opacity') {
+            gridSettings.opacity = Number(value);
+            extBg.opacity = Number(value);
+        }
+        syncGridSettingsUI();
+        syncBgPanel();
+        cycleGridTextOnly();
+        drawAll();
+    }
+
+    function syncGridSettingsUI() {
+        const pairs = [
+            ['gridMeshSize', () => extBg.base, v => `${Math.round(v)}`],
+            ['gridFourLineGap', () => extBg.four, v => `${Math.round(v)}`],
+            ['gridCrossSize', () => extBg.cross, v => `${Number(v).toFixed(1)}×`],
+            ['gridCoordinateScale', () => coordStepUnit, v => `${Number(v).toFixed(1)}`],
+            ['gridOpacity', () => extBg.opacity, v => `${Number(v).toFixed(2)}`]
+        ];
+        pairs.forEach(([inputId, getVal, fmt]) => {
+            const input = document.getElementById(inputId);
+            const out = document.getElementById(inputId + 'Value');
+            const val = getVal();
+            if (input) input.value = val;
+            if (out) out.textContent = fmt(val);
+        });
+        const snap = document.getElementById('gridSnapEnabled');
+        if (snap) snap.checked = !!(gridSettings.snapEnabled || extBg.snap);
+    }
+
+    function setGridPreset(name) {
+        const presets = {
+            small:  { base: 28, four: 8,  cross: 2.0, coordStep: 1, opacity: 0.06 },
+            medium: { base: 40, four: 12, cross: 2.5, coordStep: 1, opacity: 0.08 },
+            large:  { base: 60, four: 18, cross: 3.5, coordStep: 2, opacity: 0.12 }
+        };
+        const p = presets[name];
+        if (p) {
+            extBg.base = p.base; baseGridSize = extBg.base;
+            extBg.four = p.four;
+            extBg.cross = p.cross;
+            extBg.opacity = p.opacity;
+            coordStepUnit = p.coordStep;
+            gridSettings.meshSize = p.base;
+            gridSettings.fourLineGap = p.four;
+            gridSettings.crossCellSize = p.cross;
+            gridSettings.opacity = p.opacity;
+            gridSettings.coordinateScale = p.coordStep;
+        }
+        syncGridSettingsUI();
+        syncBgPanel();
+        cycleGridTextOnly();
+        drawAll();
+    }
+
+    function resetGridSettings() {
+        extBg.base = EXT_DEFAULTS.base; baseGridSize = extBg.base;
+        extBg.four = EXT_DEFAULTS.four;
+        extBg.cross = EXT_DEFAULTS.cross;
+        extBg.opacity = EXT_DEFAULTS.opacity;
+        coordStepUnit = 1.0;
+        Object.assign(gridSettings, {
+            meshSize: EXT_DEFAULTS.base,
+            fourLineGap: EXT_DEFAULTS.four,
+            crossCellSize: EXT_DEFAULTS.cross,
+            coordinateScale: 1.0,
+            opacity: EXT_DEFAULTS.opacity,
+            snapEnabled: false
+        });
+        syncGridSettingsUI();
+        syncBgPanel();
+        cycleGridTextOnly();
+        drawAll();
+    }
+    
+    function toggleLayout() { const tb = document.getElementById('myToolbar'); layoutState = (layoutState + 1) % 2; if (layoutState === 1) tb.classList.add('tb-vertical'); else tb.classList.remove('tb-vertical'); }
+
+    function toScreen(mx, my) { return { x: canvas.width / 2 + mx * baseGridSize * scale + offsetX, y: canvas.height / 2 - my * baseGridSize * scale + offsetY }; }
+    function toMath(sx, sy) { return { x: ((sx - canvas.width / 2) - offsetX) / (baseGridSize * scale), y: ((canvas.height / 2 - sy) + offsetY) / (baseGridSize * scale) }; }
+
+    function isSnapEnabled() { return !!(gridSettings.snapEnabled || extBg.snap); }
+    function setSnapEnabled(v) {
+        gridSettings.snapEnabled = !!v;
+        extBg.snap = !!v;
+        syncGridSettingsUI();
+        syncBgPanel();
+    }
+    function snapMathPoint(m) {
+        if (!isSnapEnabled()) return m;
+        const step = 1; // 数学座標1単位を基準に吸着
+        return {
+            x: Math.round(m.x / step) * step,
+            y: Math.round(m.y / step) * step
+        };
+    }
+
+    function cloneState(arr) {
+        return arr.map(item => {
+            const copy = { ...item };
+            if (item.pts) copy.pts = item.pts.map(p => ({ ...p }));
+            if (item.plotIds) copy.plotIds = [...item.plotIds];
+            if (item.drawingIds) copy.drawingIds = [...item.drawingIds];
+            return copy;
+        });
+    }
+
+    function saveHistory() {
+        undoStack.push({ 
+            drawings: cloneState(drawings), 
+            plots: cloneState(plots), 
+            activeMeasures: cloneState(activeMeasures), 
+            groups: cloneState(groups), 
+            labelIndex: labelIndex 
+        });
+        playbookRedo = []; 
+        if (undoStack.length > 40) undoStack.shift();
+    }
+    function handleUndo() {
+        if (undoStack.length === 0) return;
+        playbookRedo.push({ drawings: cloneState(drawings), plots: cloneState(plots), activeMeasures: cloneState(activeMeasures), groups: cloneState(groups), labelIndex: labelIndex });
+        applyState(undoStack.pop());
+    }
+    function handleRedo() {
+        if (playbookRedo.length === 0) return;
+        undoStack.push({ drawings: cloneState(drawings), plots: cloneState(plots), activeMeasures: cloneState(activeMeasures), groups: cloneState(groups), labelIndex: labelIndex });
+        applyState(playbookRedo.pop());
+    }
+    function applyState(s) { drawings = s.drawings || []; plots = s.plots || []; activeMeasures = s.activeMeasures || []; groups = s.groups || []; labelIndex = s.labelIndex || 0; selectedPlotIds = []; selectedDrawingIds = []; measureClickSequence = []; measureLineSequence = []; }
+    function generateUniqueId() { return 'g_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5); }
+    function getNextLabel() { const L = labels[labelIndex % 26] + (labelIndex >= 26 ? Math.floor(labelIndex/26) : ""); labelIndex++; return L; }
+
+    function deployPresetShapeAt(type, mx, my) {
+        saveHistory(); let localPlots = [];
+        if (type === 'p-triangle') localPlots = [{ id: getNextLabel(), mx: mx - 2.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 3.0, my: my - 0.5 }, { id: getNextLabel(), mx: mx + 0.5, my: my + 2.0 }];
+        else if (type === 'p-iso-triangle') localPlots = [{ id: getNextLabel(), mx: mx - 1.2, my: my - 2.0 }, { id: getNextLabel(), mx: mx + 1.2, my: my - 2.0 }, { id: getNextLabel(), mx: mx, my: my + 2.2 }];
+        else if (type === 'p-equ-triangle') { let side = 3.6; let h = side * Math.sqrt(3) / 2; localPlots = [{ id: getNextLabel(), mx: mx - side/2, my: my - h/3 }, { id: getNextLabel(), mx: mx + side/2, my: my - h/3 }, { id: getNextLabel(), mx: mx, my: my + 2*h/3 }]; }
+        else if (type === 'p-right-triangle') localPlots = [{ id: getNextLabel(), mx: mx - 1.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 2.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx - 1.5, my: my + 1.8 }];
+        else if (type === 'p-square') localPlots = [{ id: getNextLabel(), mx: mx - 1.5, my: my - 1.5 }, { id: getNextLabel(), mx: mx + 1.5, my: my - 1.5 }, { id: getNextLabel(), mx: mx + 1.5, my: my + 1.5 }, { id: getNextLabel(), mx: mx - 1.5, my: my + 1.5 }];
+        else if (type === 'p-rhombus') localPlots = [{ id: getNextLabel(), mx: mx, my: my - 2.0 }, { id: getNextLabel(), mx: mx + 1.5, my: my }, { id: getNextLabel(), mx: mx, my: my + 2.0 }, { id: getNextLabel(), mx: mx - 1.5, my: my }];
+        else if (type === 'p-trapezoid') localPlots = [{ id: getNextLabel(), mx: mx - 2.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 2.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 1.2, my: my + 1.2 }, { id: getNextLabel(), mx: mx - 1.2, my: my + 1.2 }];
+        else if (type === 'p-parallelogram') localPlots = [{ id: getNextLabel(), mx: mx - 2.0, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 1.5, my: my - 1.2 }, { id: getNextLabel(), mx: mx + 2.5, my: my + 1.2 }, { id: getNextLabel(), mx: mx - 1.0, my: my + 1.2 }];
+        
+        localPlots.forEach(p => { p.color = currentColor; p.isFixed = false; p.boundCircleId = null; });
+        const pIds = localPlots.map(p => p.id); const dIds = [];
+        for (let i = 0; i < localPlots.length; i++) {
+            const p1 = localPlots[i]; const p2 = localPlots[(i + 1) % localPlots.length]; const newId = generateUniqueId(); dIds.push(newId);
+            drawings.push({ id: newId, type: 'segment', mX1: p1.mx, mY1: p1.my, mX2: p2.mx, mY2: p2.my, bindP1: p1.id, bindP2: p2.id, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+        }
+        plots.push(...localPlots); groups.push({ id: Date.now(), plotIds: pIds, drawingIds: dIds });
+    }
+
+    function createGroupFromSelected() { if (selectedPlotIds.length === 0 && selectedDrawingIds.length === 0) return; saveHistory(); groups.push({ id: 'group_' + Date.now(), plotIds: [...selectedPlotIds], drawingIds: [...selectedDrawingIds] }); selectedPlotIds = []; selectedDrawingIds = []; }
+    function clearSelectedGroup() {
+        if (selectedPlotIds.length === 0 && selectedDrawingIds.length === 0) return;
+        const selectedPlots = new Set(selectedPlotIds);
+        const selectedDrawings = new Set(selectedDrawingIds);
+        const hasAffectedGroup = groups.some(g =>
+            g.plotIds?.some(id => selectedPlots.has(id)) ||
+            g.drawingIds?.some(id => selectedDrawings.has(id))
+        );
+        if (!hasAffectedGroup) return;
+        saveHistory();
+        groups = groups.filter(g =>
+            !(g.plotIds?.some(id => selectedPlots.has(id)) ||
+              g.drawingIds?.some(id => selectedDrawings.has(id)))
+        );
+        selectedPlotIds = [];
+        selectedDrawingIds = [];
+    }
+
+    function setupInscribedAngleTheorem() {
+        saveHistory(); plots = []; drawings = []; activeMeasures = []; groups = []; labelIndex = 0;
+        const o = { id: 'O', mx: 0, my: 0, color: '#ffff00', isFixed: true };
+        const a = { id: 'A', mx: -3, my: -1.5, color: '#fff', boundCircleId: 'c_thm' };
+        const b = { id: 'B', mx: 3, my: -1.5, color: '#fff', boundCircleId: 'c_thm' };
+        const p = { id: 'P', mx: 0, my: 3.35, color: '#ff4d4d', boundCircleId: 'c_thm' };
+        plots.push(o, a, b, p);
+        drawings.push({ id: 'c_thm', type: 'circle', mX1: 0, mY1: 0, mX2: a.mx, mY2: a.my, color: 'rgba(255,255,255,0.3)', thickness: 4, penType: 'chalk', lineStyle: 'dashed' });
+        drawings.push({ id: 'pa', type: 'segment', mX1: p.mx, mY1: p.my, mX2: a.mx, mY2: a.my, bindP1: 'P', bindP2: 'A', color: '#00b4d8', thickness: 5, penType: 'chalk' });
+        drawings.push({ id: 'pb', type: 'segment', mX1: p.mx, mY1: p.my, mX2: b.mx, mY2: b.my, bindP1: 'P', bindP2: 'B', color: '#00b4d8', thickness: 5, penType: 'chalk' });
+        drawings.push({ id: 'oa', type: 'segment', mX1: o.mx, mY1: o.my, mX2: a.mx, mY2: a.my, bindP1: 'O', bindP2: 'A', color: '#ffff00', thickness: 4, penType: 'chalk' });
+        drawings.push({ id: 'ob', type: 'segment', mX1: o.mx, mY1: o.my, mX2: b.mx, mY2: b.my, bindP1: 'O', bindP2: 'B', color: '#ffff00', thickness: 4, penType: 'chalk' });
+        activeMeasures.push({ type: 'ang', p1: 'A', p2: 'P', p3: 'B', flip: false }, { type: 'ang', p1: 'A', p2: 'O', p3: 'B', flip: false });
+        changeMode('select', document.getElementById('btn-select'));
+    }
+
+    function clearBlackboard() { if(confirm(langDict[currentLang].confirm_clear)) { saveHistory(); drawings = []; plots = []; activeMeasures = []; groups = []; labelIndex = 0; } }
+
+    function drawAll() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawBackgroundGrids();
+        if (gridType === 4) drawMathFunctionGraph();
+        
+        for (let i = 0; i < drawings.length; i++) {
+            const d = drawings[i];
+            if (d.type === 'freehand') {
+                drawFreehandPath(d);
+            } else {
+                if (selectedBaseLine && selectedBaseLine.id === d.id) {
+                    ctx.save();
+                    let oldColor = d.color;
+                    d.color = Math.floor(Date.now() / 200) % 2 === 0 ? 'rgba(255, 140, 0, 1)' : 'rgba(255, 69, 0, 0.4)';
+                    drawGeomObject(d);
+                    d.color = oldColor;
+                    ctx.restore();
+                } else if (currentMode === 'measure-ang' && (hoveredLineId === d.id || measureLineSequence.includes(d.id))) {
+                    ctx.save();
+                    let oldColor = d.color;
+                    d.color = '#ff9f43';
+                    drawGeomObject(d);
+                    d.color = oldColor;
+                    ctx.restore();
+                } else {
+                    drawGeomObject(d); 
+                }
+            }
+        }
+        
+        drawGroupsBoundingBox();
+
+        for (let i = 0; i < plots.length; i++) {
+            const p = plots[i];
+            const s = toScreen(p.mx, p.my); ctx.beginPath(); 
+            
+            let radius = p.isFixed ? 10 : 8;
+            let isHoveredOrSelected = (currentMode === 'measure-ang' && (hoveredPlotId === p.id || measureClickSequence.includes(p.id)));
+            if (isHoveredOrSelected) radius += 4;
+            
+            ctx.arc(s.x, s.y, radius, 0, Math.PI*2);
+            if (selectedPlotIds.includes(p.id)) { ctx.save(); ctx.shadowBlur = 14; ctx.shadowColor = '#00f5d4'; ctx.fillStyle = '#00f5d4'; ctx.fill(); ctx.restore(); } 
+            else if (isHoveredOrSelected) { ctx.save(); ctx.shadowBlur = 16; ctx.shadowColor = '#00f5d4'; ctx.fillStyle = '#00f5d4'; ctx.fill(); ctx.restore(); }
+            else { ctx.fillStyle = p.isFixed ? '#ff3333' : p.color || '#fff'; ctx.fill(); }
+            ctx.strokeStyle = '#0d1f16'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif'; ctx.fillText(p.id, s.x + 12, s.y - 4);
+        }
+
+        processAndDrawMeasurements();
+        drawLivePreviewAndTools();
+    }
+
+    function drawBackgroundGrids() {
+        if (gridType === 0) return;
+        const w = canvas.width, h = canvas.height;
+        const cx = w / 2 + offsetX, cy = h / 2 + offsetY;
+        const baseStep = baseGridSize * scale;
+        const opacity = gridSettings.opacity;
+        ctx.save();
+
+        if (gridType === 1) {
+            const step = Math.max(8, gridSettings.meshSize * scale / 1.0);
+            ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.35, opacity)})`;
+            ctx.lineWidth = 1;
+            for (let x = ((cx % step) + step) % step; x < w; x += step) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+            }
+            for (let y = ((cy % step) + step) % step; y < h; y += step) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+            }
+        }
+
+        if (gridType === 2) {
+            // 英語4線：4本を1組として、等間隔に配置
+            const gap = Math.max(5, gridSettings.fourLineGap * scale);
+            const period = gap * 4;
+            for (let y = ((cy % period) + period) % period; y < h; y += period) {
+                for (let i = 0; i < 4; i++) {
+                    const lineY = y + i * gap;
+                    ctx.strokeStyle = i === 2
+                        ? 'rgba(255,77,77,0.42)'
+                        : `rgba(255,255,255,${Math.min(0.35, opacity)})`;
+                    ctx.lineWidth = (i === 0 || i === 3) ? 1.2 : 1;
+                    ctx.beginPath(); ctx.moveTo(0, lineY); ctx.lineTo(w, lineY); ctx.stroke();
+                }
+            }
+        }
+
+        if (gridType === 3) {
+            const boxSize = Math.max(16, gridSettings.crossCellSize * scale);
+            ctx.strokeStyle = `rgba(46,139,87,${Math.min(0.65, opacity * 2.5)})`;
+            ctx.lineWidth = 1.5;
+            for (let x = ((cx % boxSize) + boxSize) % boxSize; x < w; x += boxSize) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+            }
+            for (let y = ((cy % boxSize) + boxSize) % boxSize; y < h; y += boxSize) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+            }
+            ctx.strokeStyle = `rgba(46,139,87,${Math.min(0.45, opacity * 1.7)})`;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            const halfBox = boxSize / 2;
+            for (let x = ((cx % boxSize) + boxSize) % boxSize - halfBox; x < w; x += boxSize) {
+                if (x > 0) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+            }
+            for (let y = ((cy % boxSize) + boxSize) % boxSize - halfBox; y < h; y += boxSize) {
+                if (y > 0) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+            }
+        }
+
+        if (gridType === 4) {
+            const step = Math.max(8, baseStep * gridSettings.coordinateScale);
+            ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.35, opacity)})`;
+            ctx.lineWidth = 1;
+            for (let x = ((cx % step) + step) % step; x < w; x += step) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+            }
+            for (let y = ((cy % step) + step) % step; y < h; y += step) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+            }
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+
+            if (showCoordLabels) {
+                ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '11px monospace';
+                // 数値ラベルは図形の数学座標系（baseGridSize）に合わせる
+                let startM = toMath(0, h), endM = toMath(w, 0);
+                for (let mx = Math.ceil(startM.x/coordStepUnit)*coordStepUnit; mx <= endM.x; mx += coordStepUnit) {
+                    if (Math.abs(mx) > 0.001) ctx.fillText(mx.toString(), toScreen(mx, 0).x - 6, cy + 14);
+                }
+                for (let my = Math.ceil(startM.y/coordStepUnit)*coordStepUnit; my <= endM.y; my += coordStepUnit) {
+                    if (Math.abs(my) > 0.001) ctx.fillText(my.toString(), cx + 8, toScreen(0, my).y + 4);
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    let _formulaFnCache = { src: null, fn: null };
+    function getFormulaFn(js) {
+        if (typeof js !== 'string' || js.length > 200) return null;
+        if (!/^[0-9x+\-*/().\s]*$/.test(js)) return null;
+        if (_formulaFnCache.src === js && _formulaFnCache.fn) return _formulaFnCache.fn;
+        try {
+            const fn = new Function('x', '"use strict"; return (' + js + ');');
+            _formulaFnCache = { src: js, fn };
+            return fn;
+        } catch (e) { return null; }
+    }
+    function drawMathFunctionGraph() {
+        ctx.save(); ctx.strokeStyle = '#00f5d4'; ctx.lineWidth = 3; ctx.beginPath(); let first = true;
+        const fn = getFormulaFn(cachedJsFormula);
+        if (!fn) { ctx.restore(); return; }
+        for (let sx = 0; sx < canvas.width; sx += 3) {
+            let x = toMath(sx, 0).x; let y = 0;
+            try {
+                y = fn(x); 
+            } catch(e) { 
+                continue; 
+            }
+            if (typeof y === 'number' && !isNaN(y) && isFinite(y)) {
+                let s = toScreen(x, y); if (first) { ctx.moveTo(s.x, s.y); first = false; } else { ctx.lineTo(s.x, s.y); }
+            }
+        }
+        ctx.stroke(); ctx.restore();
+    }
+
+    function setupPenContext(ctx, d) {
+        ctx.strokeStyle = d.color || '#fff'; ctx.lineWidth = d.thickness || 6; ctx.setLineDash(d.lineStyle === 'dashed' ? [8, 6] : []);
+        ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0;
+        if (d.penType === 'pencil') { ctx.globalAlpha = 0.75; ctx.lineWidth = Math.max(1.5, d.thickness * 0.4); }
+        else if (d.penType === 'highlighter') { ctx.globalAlpha = 0.45; ctx.globalCompositeOperation = 'multiply'; }
+        else if (d.penType === 'neon') { ctx.shadowBlur = 16; ctx.shadowColor = d.color || '#00f5d4'; }
+    }
+
+    function drawGeomObject(d) {
+        ctx.save(); setupPenContext(ctx, d);
+        if (selectedDrawingIds.includes(d.id)) { ctx.shadowBlur = 12; ctx.shadowColor = '#00f5d4'; ctx.strokeStyle = '#00f5d4'; }
+        const p1 = toScreen(d.mX1, d.mY1); const p2 = toScreen(d.mX2, d.mY2);
+        if (d.type === 'segment') { ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); } 
+        else if (d.type === 'line') {
+            let a = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            ctx.beginPath(); ctx.moveTo(p1.x - Math.cos(a)*3000, p1.y - Math.sin(a)*3000); ctx.lineTo(p1.x + Math.cos(a)*3000, p1.y + Math.sin(a)*3000); ctx.stroke();
+        } 
+        else if (d.type === 'ray') {
+            let a = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p1.x + Math.cos(a)*3000, p1.y + Math.sin(a)*3000); ctx.stroke();
+        } 
+        else if (d.type === 'vector') {
+            ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+            let a = Math.atan2(p2.y - p1.y, p2.x - p1.x); ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.moveTo(p2.x, p2.y);
+            ctx.lineTo(p2.x - 16*Math.cos(a-Math.PI/6), p2.y - 16*Math.sin(a-Math.PI/6)); ctx.lineTo(p2.x - 16*Math.cos(a+Math.PI/6), p2.y - 16*Math.sin(a+Math.PI/6)); ctx.fill();
+        } 
+        else if (d.type === 'circle') { ctx.beginPath(); ctx.arc(p1.x, p1.y, Math.hypot(p2.x - p1.x, p2.y - p1.y), 0, Math.PI*2); ctx.stroke(); } 
+        else if (d.type === 'arc') {
+            let r = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            ctx.beginPath(); ctx.arc(p1.x, p1.y, r, d.startAngle || 0, d.endAngle || Math.PI); ctx.stroke();
+            if(currentMode === 'select') {
+                ctx.fillStyle = '#00f5d4';
+                ctx.beginPath(); ctx.arc(p1.x + r*Math.cos(d.startAngle||0), p1.y + r*Math.sin(d.startAngle||0), 6, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p1.x + r*Math.cos(d.endAngle||Math.PI), p1.y + r*Math.sin(d.endAngle||Math.PI), 6, 0, Math.PI*2); ctx.fill();
+            }
+        }
+        ctx.restore();
+    }
+
+    function drawFreehandPath(d) {
+        if (!d.pts || d.pts.length < 2) return;
+        ctx.save(); setupPenContext(ctx, d);
+        if (d.penType === 'chalk') {
+            for (let i = 1; i < d.pts.length; i++) {
+                const s1 = toScreen(d.pts[i-1].x, d.pts[i-1].y); const s2 = toScreen(d.pts[i].x, d.pts[i].y);
+                ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke(); ctx.fillStyle = d.color;
+                for(let j=0; j<2; j++) ctx.fillRect(s2.x + (Math.random()-0.5)*d.thickness*1.5, s2.y + (Math.random()-0.5)*d.thickness*1.5, 1.2, 1.2);
+            }
+        } else {
+            ctx.beginPath(); ctx.moveTo(toScreen(d.pts[0].x, d.pts[0].y).x, toScreen(d.pts[0].x, d.pts[0].y).y);
+            for (let i = 1; i < d.pts.length; i++) ctx.lineTo(toScreen(d.pts[i].x, d.pts[i].y).x, toScreen(d.pts[i].x, d.pts[i].y).y);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function drawGroupsBoundingBox() {
+        if (groups.length === 0) return;
+        ctx.save(); ctx.strokeStyle = 'rgba(0, 245, 212, 0.45)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+        groups.forEach(g => {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity; let hasPoints = false;
+            g.plotIds.forEach(id => {
+                let p = plots.find(pt => pt.id === id);
+                if (p) {
+                    let s = toScreen(p.mx, p.my);
+                    if(s.x < minX) minX = s.x; if(s.x > maxX) maxX = s.x; if(s.y < minY) minY = s.y; if(s.y > maxY) maxY = s.y; hasPoints = true;
+                }
+            });
+            if (hasPoints) {
+                ctx.strokeRect(minX - 15, minY - 15, (maxX - minX) + 30, (maxY - minY) + 30);
+                ctx.fillStyle = 'rgba(0, 245, 212, 0.02)'; ctx.fillRect(minX - 15, minY - 15, (maxX - minX) + 30, (maxY - minY) + 30);
+            }
+        });
+        ctx.restore();
+    }
+
+    function toggleAngleFlip(idx) {
+        if (activeMeasures[idx]) {
+            saveHistory();
+            activeMeasures[idx].flip = !activeMeasures[idx].flip;
+        }
+    }
+
+    function processAndDrawMeasurements() {
+        let htmlBuffer = "";
+        
+        if (currentMode === 'select' && selectedDrawingIds.length === 1 && gridType === 4) {
+            let activeDrawing = drawings.find(d => d.id === selectedDrawingIds[0]);
+            if (activeDrawing && ['line', 'segment', 'ray', 'vector'].includes(activeDrawing.type)) {
+                let dx = activeDrawing.mX2 - activeDrawing.mX1;
+                let dy = activeDrawing.mY2 - activeDrawing.mY1;
+                if (Math.abs(dx) > 0.0001) {
+                    let slope = dy / dx;
+                    let intercept = activeDrawing.mY1 - slope * activeDrawing.mX1;
+                    let sign = intercept >= 0 ? "+ " : "- ";
+                    let absInt = Math.abs(intercept).toFixed(2);
+                    let eqString = `y = ${slope.toFixed(2)}x ${sign}${absInt}`;
+                    
+                    htmlBuffer += `<li style="color: #00f5d4;">${currentLang === 'ja' ? '選択中の直線: ' : 'Selected Line: '}${eqString}</li>`;
+                    
+                    if (document.activeElement !== kidsFormulaInput && document.activeElement?.id !== 'fracNumerator' && document.activeElement?.id !== 'fracDenominator') {
+                        kidsFormulaInput.value = `${slope.toFixed(2)}*x ${intercept >= 0 ? '+' : '-'}${absInt}`;
+                        cachedJsFormula = translateKidsToJs(kidsFormulaInput.value);
+                        parseAndSyncFractionDisplay(kidsFormulaInput.value);
+                    }
+                } else {
+                    htmlBuffer += `<li style="color: #ff4d4d;">x = ${activeDrawing.mX1.toFixed(2)}</li>`;
+                }
+            }
+        }
+
+        activeMeasures.forEach((m, idx) => {
+            if (m.type === 'len') {
+                const p1 = plots.find(p => p.id === m.p1); const p2 = plots.find(p => p.id === m.p2); if (!p1 || !p2) return;
+                let dist = Math.hypot(p2.mx - p1.mx, p2.my - p1.my);
+                htmlBuffer += `<li>${currentLang === 'ja' ? `直線 ${p1.id}${p2.id} = ${dist.toFixed(2)}` : `Line ${p1.id}${p2.id} = ${dist.toFixed(2)}`}</li>`;
+                
+                const s1 = toScreen(p1.mx, p1.my); const s2 = toScreen(p2.mx, p2.my);
+                ctx.save(); ctx.strokeStyle = '#ffff00'; ctx.lineWidth = 2; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+                ctx.fillStyle = '#ffff00'; ctx.font = 'bold 13px monospace'; ctx.fillText(dist.toFixed(2), (s1.x+s2.x)/2 + 12, (s1.y+s2.y)/2); ctx.restore();
+            }
+            if (m.type === 'ang') {
+                const p1 = plots.find(p => p.id === m.p1); const p2 = plots.find(p => p.id === m.p2); const p3 = plots.find(p => p.id === m.p3); if (!p1 || !p2 || !p3) return;
+                
+                const s1 = toScreen(p1.mx, p1.my);
+                const s2 = toScreen(p2.mx, p2.my);
+                const s3 = toScreen(p3.mx, p3.my);
+                
+                let a1 = Math.atan2(s1.y - s2.y, s1.x - s2.x); 
+                let a3 = Math.atan2(s3.y - s2.y, s3.x - s2.x);
+                
+                let diffAng = a3 - a1;
+                while (diffAng < 0) diffAng += Math.PI * 2;
+                
+                let finalDeg = diffAng * 180 / Math.PI;
+                let isAnticlockwise = false;
+                
+                if (finalDeg > 180) {
+                    finalDeg = 360 - finalDeg;
+                    isAnticlockwise = true;
+                }
+                
+                if (m.flip) {
+                    finalDeg = 360 - finalDeg;
+                    isAnticlockwise = !isAnticlockwise;
+                }
+                
+                let btnLabel = currentLang === 'ja' ? '🔄 反転' : '🔄 Flip';
+                htmlBuffer += `<li>∠${p1.id}${p2.id}${p3.id} = ${finalDeg.toFixed(1)}° <button class="btn-flip-angle" data-idx="${idx}">${btnLabel}</button></li>`;
+
+                ctx.save(); ctx.strokeStyle = '#ff4d4d'; ctx.lineWidth = 3;
+                ctx.beginPath(); 
+                ctx.arc(s2.x, s2.y, 28, a1, a3, isAnticlockwise); 
+                ctx.stroke();
+                
+                let textAng = a1 + (isAnticlockwise ? -1 : 1) * (Math.abs(a3 - a1) / 2);
+                if (m.flip) textAng += Math.PI;
+                ctx.fillStyle = '#ff4d4d'; ctx.font = 'bold 14px monospace'; 
+                ctx.fillText(`${finalDeg.toFixed(1)}°`, s2.x + 36 * Math.cos(textAng) - 10, s2.y + 36 * Math.sin(textAng) + 4); 
+                ctx.restore();
+            }
+        });
+
+        if (measureOutput.innerHTML !== htmlBuffer) {
+            measureOutput.innerHTML = htmlBuffer;
+        }
+    }
+
+    function drawLivePreviewAndTools() {
+        if (!isDrawing) return;
+        ctx.save();
+        
+        if (['segment', 'line', 'ray', 'vector'].includes(currentMode) && dragStartMath) {
+            const p1 = toScreen(dragStartMath.x, dragStartMath.y);
+            ctx.strokeStyle = currentColor; ctx.lineWidth = currentThickness; ctx.globalAlpha = 0.5;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            if (currentMode === 'segment' || currentMode === 'vector') {
+                ctx.moveTo(p1.x, p1.y); ctx.lineTo(currentX, currentY);
+            } else {
+                let a = Math.atan2(currentY - p1.y, currentX - p1.x);
+                ctx.moveTo(p1.x - Math.cos(a)*3000, p1.y - Math.sin(a)*3000); ctx.lineTo(p1.x + Math.cos(a)*3000, p1.y + Math.sin(a)*3000);
+            }
+            ctx.stroke();
+        }
+        else if ((currentMode === 'compass' || currentMode === 'arc') && dragStartMath) {
+            const p1 = toScreen(dragStartMath.x, dragStartMath.y);
+            let r = Math.hypot(currentX - p1.x, currentY - p1.y);
+            
+            ctx.strokeStyle = currentColor; ctx.lineWidth = currentThickness; ctx.globalAlpha = 0.3;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.arc(p1.x, p1.y, r, 0, Math.PI*2); ctx.stroke();
+            
+            let midX = (p1.x + currentX) / 2;
+            let midY = (p1.y + currentY) / 2;
+            let angle = Math.atan2(currentY - p1.y, currentX - p1.x);
+            
+            let headDist = Math.max(70, r * 0.8); 
+            let headX = midX + Math.cos(angle - Math.PI / 2) * headDist;
+            let headY = midY + Math.sin(angle - Math.PI / 2) * headDist;
+            
+            ctx.save();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.shadowBlur = 8; ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            
+            ctx.strokeStyle = '#b2bec3'; ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(headX, headY);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+            
+            ctx.strokeStyle = '#dfe6e9'; ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(headX, headY);
+            let pLegMidX = headX + (currentX - headX) * 0.65;
+            let pLegMidY = headY + (currentY - headY) * 0.65;
+            ctx.lineTo(pLegMidX, pLegMidY);
+            ctx.stroke();
+            
+            ctx.strokeStyle = currentColor; ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(pLegMidX, pLegMidY);
+            ctx.lineTo(currentX, currentY);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#6c5ce7'; ctx.beginPath(); ctx.arc(headX, headY, 8, 0, Math.PI*2); ctx.fill(); 
+            ctx.fillStyle = '#2d3436'; ctx.beginPath(); ctx.arc(p1.x, p1.y, 3, 0, Math.PI*2); ctx.fill(); 
+            ctx.fillStyle = '#ff7675'; ctx.beginPath(); ctx.arc(pLegMidX, pLegMidY, 5, 0, Math.PI*2); ctx.fill(); 
+            
+            ctx.restore();
+        }
+        else if (['parallel', 'perpend'].includes(currentMode) && selectedBaseLine && dragStartMath) {
+            const p1 = toScreen(dragStartMath.x, dragStartMath.y);
+            let baseAng = Math.atan2(toScreen(selectedBaseLine.mX2, selectedBaseLine.mY2).y - toScreen(selectedBaseLine.mX1, selectedBaseLine.mY1).y, toScreen(selectedBaseLine.mX2, selectedBaseLine.mY2).x - toScreen(selectedBaseLine.mX1, selectedBaseLine.mY1).x);
+            let targetAng = (currentMode === 'parallel') ? baseAng : baseAng + Math.PI / 2;
+            
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 245, 212, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(p1.x - Math.cos(targetAng)*3000, p1.y - Math.sin(targetAng)*3000);
+            ctx.lineTo(p1.x + Math.cos(targetAng)*3000, p1.y + Math.sin(targetAng)*3000);
+            ctx.stroke();
+            
+            ctx.translate(p1.x, p1.y);
+            ctx.rotate(targetAng);
+            ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
+            ctx.strokeStyle = 'rgba(255, 165, 0, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.fillRect(-200, -15, 400, 30);
+            ctx.strokeRect(-200, -15, 400, 30);
+            ctx.restore();
+        }
+        else if (currentMode === 'lasso' && lassoPoints.length > 0) {
+            ctx.strokeStyle = 'rgba(0, 245, 212, 0.85)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+            ctx.fillStyle = 'rgba(0, 245, 212, 0.05)'; ctx.beginPath(); ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+            for(let i=1; i<lassoPoints.length; i++) ctx.lineTo(lassoPoints[i].x, lassoPoints[i].y);
+            ctx.stroke(); ctx.fill();
+        }
+        else if (currentMode === 'eraser' && eraserPath.length > 0) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 35; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(eraserPath[0].x, eraserPath[0].y);
+            for(let i=1; i<eraserPath.length; i++) ctx.lineTo(eraserPath[i].x, eraserPath[i].y);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(currentX, currentY);
+        ctx.fillStyle = '#ffffff'; ctx.font = '32px Arial';
+        
+        if (currentMode === 'free') {
+            ctx.rotate(-Math.PI / 4);
+            ctx.fillText(currentPenType === 'chalk' ? '🖍️' : '✏️', -10, 10);
+        } else if (['segment', 'line', 'ray', 'parallel', 'perpend'].includes(currentMode)) {
+            ctx.rotate(Math.PI / 6);
+            ctx.fillText('📏', -15, -5);
+        } else if (currentMode === 'vector') {
+            ctx.fillText('➔', -10, 10);
+        } else if (currentMode === 'eraser') {
+            ctx.fillText('🧼', -15, 15);
+        } else if (currentMode === 'plot') {
+            ctx.fillText('📍', -10, 10);
+        }
+        ctx.restore();
+    }
+
+    function startDrawing(e) {
+        if (e.target !== canvas) return; isDrawing = true; let m = toMath(e.clientX, e.clientY);
+        if (['plot','segment','line','ray','vector','compass','arc','parallel','perpend'].includes(currentMode)) m = snapMathPoint(m);
+        dragStartMath = m; liveCurrentMath = m; startX = e.clientX; startY = e.clientY; currentX = e.clientX; currentY = e.clientY;
+
+        if (currentMode === 'free') { saveHistory(); activeFreehandPoints = [{ x: m.x, y: m.y }]; }
+        else if (currentMode === 'plot') { saveHistory(); plots.push({ id: getNextLabel(), mx: m.x, my: m.y, color: currentColor }); }
+        else if (['p-triangle', 'p-iso-triangle', 'p-equ-triangle', 'p-right-triangle', 'p-square', 'p-rhombus', 'p-trapezoid', 'p-parallelogram'].includes(currentMode)) deployPresetShapeAt(currentMode, m.x, m.y);
+        else if (['parallel', 'perpend'].includes(currentMode)) {
+            let hit = null;
+            for(let d of drawings) {
+                if (['segment','line','ray','vector'].includes(d.type)) {
+                    if (distToSegment({x: e.clientX, y: e.clientY}, toScreen(d.mX1, d.mY1), toScreen(d.mX2, d.mY2)) < 25) { hit = d; break; }
+                }
+            }
+            if(hit) selectedBaseLine = hit;
+        }
+        else if (currentMode === 'measure-len') {
+            let hit = null;
+            for(let d of drawings) {
+                if (['segment','line','ray','vector'].includes(d.type)) {
+                    if (distToSegment({x: e.clientX, y: e.clientY}, toScreen(d.mX1, d.mY1), toScreen(d.mX2, d.mY2)) < 22) { hit = d; break; }
+                }
+            }
+            if (hit && hit.bindP1 && hit.bindP2) {
+                saveHistory();
+                if (!activeMeasures.some(m => m.type === 'len' && m.p1 === hit.bindP1 && m.p2 === hit.bindP2)) activeMeasures.push({ type: 'len', p1: hit.bindP1, p2: hit.bindP2 });
+            }
+        }
+        else if (currentMode === 'measure-ang') {
+            let grabbed = null;
+            for (let p of plots) { if (Math.hypot(e.clientX - toScreen(p.mx, p.my).x, e.clientY - toScreen(p.mx, p.my).y) < 22) { grabbed = p; break; } }
+            
+            if (grabbed) {
+                measureLineSequence = [];
+                measureClickSequence.push(grabbed.id);
+                if (measureClickSequence.length === 3) {
+                    saveHistory(); activeMeasures.push({ type: 'ang', p1: measureClickSequence[0], p2: measureClickSequence[1], p3: measureClickSequence[2], flip: false });
+                    measureClickSequence = [];
+                }
+            } else {
+                let hitLine = null;
+                for (let d of drawings) {
+                    if (['segment', 'line', 'ray', 'vector'].includes(d.type)) {
+                        if (distToSegment({x: e.clientX, y: e.clientY}, toScreen(d.mX1, d.mY1), toScreen(d.mX2, d.mY2)) < 20) { hitLine = d; break; }
+                    }
+                }
+                if (hitLine) {
+                    measureClickSequence = []; 
+                    if (!measureLineSequence.includes(hitLine.id)) {
+                        measureLineSequence.push(hitLine.id);
+                    }
+                    if (measureLineSequence.length === 2) {
+                        let L1 = drawings.find(d => d.id === measureLineSequence[0]);
+                        let L2 = drawings.find(d => d.id === measureLineSequence[1]);
+                        measureLineSequence = [];
+                        
+                        if (L1 && L2 && L1.bindP1 && L1.bindP2 && L2.bindP1 && L2.bindP2) {
+                            let commonPt = null; let p1 = null; let p3 = null;
+                            if (L1.bindP1 === L2.bindP1) { commonPt = L1.bindP1; p1 = L1.bindP2; p3 = L2.bindP2; }
+                            else if (L1.bindP1 === L2.bindP2) { commonPt = L1.bindP1; p1 = L1.bindP2; p3 = L2.bindP1; }
+                            else if (L1.bindP2 === L2.bindP1) { commonPt = L1.bindP2; p1 = L1.bindP1; p3 = L2.bindP2; }
+                            else if (L1.bindP2 === L2.bindP2) { commonPt = L1.bindP2; p1 = L1.bindP1; p3 = L2.bindP1; }
+                            
+                            if (commonPt) {
+                                saveHistory();
+                                activeMeasures.push({ type: 'ang', p1: p1, p2: commonPt, p3: p3, flip: false });
+                            } else {
+                                measureLineSequence = [];
+                                if (typeof extToast === 'function') extToast(currentLang === 'ja' ? '共有点のある2直線を選んでください' : 'Select 2 lines with a common point');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else if (['select', 'set-fixed', 'set-bound'].includes(currentMode)) {
+            grabbedPlot = null; grabbedArcInfo = null; selectedDrawingIds = [];
+            for (let p of plots) { if (Math.hypot(e.clientX - toScreen(p.mx, p.my).x, e.clientY - toScreen(p.mx, p.my).y) < 22) { grabbedPlot = p; break; } }
+            
+            if (!grabbedPlot && currentMode === 'select') {
+                for (let d of drawings) {
+                    if (d.type === 'arc') {
+                        let pC = toScreen(d.mX1, d.mY1); let r = Math.hypot(toScreen(d.mX2, d.mY2).x - pC.x, toScreen(d.mX2, d.mY2).y - pC.y);
+                        let pStart = { x: pC.x + r*Math.cos(d.startAngle), y: pC.y + r*Math.sin(d.startAngle) };
+                        let pEnd = { x: pC.x + r*Math.cos(d.endAngle), y: pC.y + r*Math.sin(d.endAngle) };
+                        if (Math.hypot(e.clientX - pStart.x, e.clientY - pStart.y) < 24) { grabbedArcInfo = { arc: d, node: 'start' }; saveHistory(); break; }
+                        if (Math.hypot(e.clientX - pEnd.x, e.clientY - pEnd.y) < 24) { grabbedArcInfo = { arc: d, node: 'end' }; saveHistory(); break; }
+                    }
+                }
+            }
+            if (grabbedPlot) {
+                if (currentMode === 'set-fixed') { saveHistory(); grabbedPlot.isFixed = !grabbedPlot.isFixed; } 
+                else if (currentMode === 'select') { saveHistory(); groups.forEach(g => { if (g.plotIds.includes(grabbedPlot.id)) selectedPlotIds = [...g.plotIds]; }); }
+            } else if (!grabbedArcInfo) {
+                for(let d of drawings) {
+                    if (['segment','line','ray','vector'].includes(d.type)) {
+                        if (distToSegment({x: e.clientX, y: e.clientY}, toScreen(d.mX1, d.mY1), toScreen(d.mX2, d.mY2)) < 18) {
+                            selectedDrawingIds = [d.id];
+                            lineStyleSelect.value = d.lineStyle || 'solid';
+                            penTypeSelect.value = d.penType || 'chalk';
+                            thicknessSelect.value = String(d.thickness || 6); break;
+                        }
+                    }
+                }
+                if (selectedDrawingIds.length === 0) { startX = e.clientX; startY = e.clientY; }
+            }
+        }
+        else if (currentMode === 'lasso') lassoPoints = [{ x: e.clientX, y: e.clientY }];
+        else if (currentMode === 'eraser') { saveHistory(); eraserPath = [{ x: e.clientX, y: e.clientY }]; executeEraserLogic(e.clientX, e.clientY); }
+    }
+
+    function draw(e) {
+        let m = toMath(e.clientX, e.clientY);
+        if (isSnapEnabled() && ['plot','segment','line','ray','vector','compass','arc','parallel','perpend'].includes(currentMode)) m = snapMathPoint(m);
+        liveCurrentMath = m;
+        let dx = e.clientX - startX; let dy = e.clientY - startY; currentX = e.clientX; currentY = e.clientY;
+
+        if (currentMode === 'measure-ang') {
+            hoveredPlotId = null; hoveredLineId = null;
+            for (let p of plots) {
+                if (Math.hypot(e.clientX - toScreen(p.mx, p.my).x, e.clientY - toScreen(p.mx, p.my).y) < 22) { hoveredPlotId = p.id; break; }
+            }
+            if (!hoveredPlotId) {
+                for (let d of drawings) {
+                    if (['segment', 'line', 'ray', 'vector'].includes(d.type)) {
+                        if (distToSegment({x: e.clientX, y: e.clientY}, toScreen(d.mX1, d.mY1), toScreen(d.mX2, d.mY2)) < 20) { hoveredLineId = d.id; break; }
+                    }
+                }
+            }
+        }
+
+        if (!isDrawing) return;
+
+        if (currentMode === 'free') {
+            activeFreehandPoints.push({ x: m.x, y: m.y });
+            if (drawings.length === 0 || drawings[drawings.length-1].id !== 'live_free') {
+                drawings.push({ id: 'live_free', type: 'freehand', pts: activeFreehandPoints, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+            } else { drawings[drawings.length-1].pts = activeFreehandPoints; }
+        }
+        else if (currentMode === 'select' && grabbedPlot) {
+            if (selectedPlotIds.includes(grabbedPlot.id)) {
+                let mDx = m.x - grabbedPlot.mx; let mDy = m.y - grabbedPlot.my;
+                plots.forEach(pt => { if (selectedPlotIds.includes(pt.id) && !pt.isFixed) { pt.mx += mDx; pt.my += mDy; } });
+            } else if (!grabbedPlot.isFixed) {
+                if (grabbedPlot.boundCircleId) {
+                    let tc = drawings.find(d => d.id === grabbedPlot.boundCircleId);
+                    if (tc) {
+                        let cAng = Math.atan2(m.y - tc.mY1, m.x - tc.mX1); let rM = Math.hypot(tc.mX2 - tc.mX1, tc.mY2 - tc.mY1);
+                        grabbedPlot.mx = tc.mX1 + rM * Math.cos(cAng); grabbedPlot.my = tc.mY1 + rM * Math.sin(cAng);
+                    }
+                } else { grabbedPlot.mx = m.x; grabbedPlot.my = m.y; }
+            }
+            drawings.forEach(d => {
+                let p1 = plots.find(p => p.id === d.bindP1); if (p1) { d.mX1 = p1.mx; d.mY1 = p1.my; }
+                let p2 = plots.find(p => p.id === d.bindP2); if (p2) { d.mX2 = p2.mx; d.mY2 = p2.my; }
+            });
+        }
+        else if (currentMode === 'select' && grabbedArcInfo) {
+            let arcD = grabbedArcInfo.arc;
+            let pC = toScreen(arcD.mX1, arcD.mY1);
+            let targetAng = Math.atan2(e.clientY - pC.y, e.clientX - pC.x);
+            
+            if (grabbedArcInfo.node === 'start') {
+                arcD.startAngle = targetAng;
+            } else {
+                arcD.endAngle = targetAng;
+            }
+        }
+        else if (currentMode === 'select' && !grabbedPlot && !grabbedArcInfo && selectedDrawingIds.length === 0) {
+            offsetX += dx; offsetY += dy; startX = e.clientX; startY = e.clientY;
+        }
+        else if (currentMode === 'lasso') lassoPoints.push({ x: e.clientX, y: e.clientY });
+        else if (currentMode === 'eraser') { eraserPath.push({ x: e.clientX, y: e.clientY }); executeEraserLogic(e.clientX, e.clientY); }
+    }
+
+    function stopDrawing(e) {
+        if (!isDrawing) return; isDrawing = false; let m = toMath(e.clientX, e.clientY);
+        if (['plot','segment','line','ray','vector','compass','arc','parallel','perpend'].includes(currentMode)) m = snapMathPoint(m);
+        if (currentMode === 'free') {
+            let liveIdx = drawings.findIndex(d => d.id === 'live_free'); if (liveIdx !== -1) drawings.splice(liveIdx, 1);
+            drawings.push({ id: generateUniqueId(), type: 'freehand', pts: activeFreehandPoints, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+        }
+        else if (['segment', 'line', 'ray', 'vector'].includes(currentMode) && dragStartMath) {
+            if (Math.hypot(m.x - dragStartMath.x, m.y - dragStartMath.y) > 0.15) {
+                saveHistory(); const p1Id = getNextLabel(); const p2Id = getNextLabel();
+                plots.push({ id: p1Id, mx: dragStartMath.x, my: dragStartMath.y, color: currentColor }, { id: p2Id, mx: m.x, my: m.y, color: currentColor });
+                drawings.push({ id: generateUniqueId(), type: currentMode, mX1: dragStartMath.x, mY1: dragStartMath.y, mX2: m.x, mY2: m.y, bindP1: p1Id, bindP2: p2Id, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+            }
+        }
+        else if (currentMode === 'compass' && dragStartMath) {
+            if (Math.hypot(m.x - dragStartMath.x, m.y - dragStartMath.y) > 0.15) {
+                saveHistory(); drawings.push({ id: generateUniqueId(), type: 'circle', mX1: dragStartMath.x, mY1: dragStartMath.y, mX2: m.x, mY2: m.y, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+            }
+        }
+        else if (currentMode === 'arc' && dragStartMath) {
+            if (Math.hypot(m.x - dragStartMath.x, m.y - dragStartMath.y) > 0.15) {
+                saveHistory(); drawings.push({ id: generateUniqueId(), type: 'arc', mX1: dragStartMath.x, mY1: dragStartMath.y, mX2: m.x, mY2: m.y, startAngle: 0, endAngle: Math.PI * 0.75, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+            }
+        }
+        else if (['parallel', 'perpend'].includes(currentMode) && selectedBaseLine && dragStartMath) {
+            if (Math.hypot(m.x - dragStartMath.x, m.y - dragStartMath.y) > 0.15) {
+                saveHistory(); let baseAng = Math.atan2(selectedBaseLine.mY2 - selectedBaseLine.mY1, selectedBaseLine.mX2 - selectedBaseLine.mX1);
+                let targetAng = (currentMode === 'parallel') ? baseAng : baseAng + Math.PI / 2;
+                const p1Id = getNextLabel(); const p2Id = getNextLabel();
+                let mx2 = dragStartMath.x + Math.cos(targetAng) * 2; let my2 = dragStartMath.y + Math.sin(targetAng) * 2;
+                plots.push({ id: p1Id, mx: dragStartMath.x, my: dragStartMath.y, color: currentColor }, { id: p2Id, mx: mx2, my: my2, color: currentColor });
+                drawings.push({ id: generateUniqueId(), type: 'line', mX1: dragStartMath.x, mY1: dragStartMath.y, mX2: mx2, mY2: my2, bindP1: p1Id, bindP2: p2Id, color: currentColor, thickness: currentThickness, penType: currentPenType, lineStyle: currentLineStyle });
+            }
+        }
+        else if (currentMode === 'set-bound' && grabbedPlot) {
+            let cc = null;
+            for(let d of drawings) {
+                if (d.type === 'circle') {
+                    let sC = toScreen(d.mX1, d.mY1); if (Math.abs(Math.hypot(e.clientX - sC.x, e.clientY - sC.y) - Math.hypot(toScreen(d.mX2, d.mY2).x - sC.x, toScreen(d.mX2, d.mY2).y - sC.y)) < 30) { cc = d; break; }
+                }
+            }
+            if (cc) { saveHistory(); grabbedPlot.boundCircleId = cc.id; }
+        }
+        else if (currentMode === 'lasso') processLassoSelection();
+
+        grabbedPlot = null; grabbedArcInfo = null; dragStartMath = null; eraserPath = [];
+    }
+
+    // 消しゴム判定の基準値を一元化（scale=1で従来値と一致、ズーム時は実効ピクセルで補正）
+    function eraseThreshold(base) { const s = Number(scale) || 1; return base / Math.max(0.5, Math.min(2, s)); }
+    function executeEraserLogic(sx, sy) {
+        let mPt = toMath(sx, sy);
+        const ER_FREE = eraseThreshold(25);
+        const ER_EDGE = eraseThreshold(25);
+        const ER_LINE = eraseThreshold(20);
+        const ER_TEXT = eraseThreshold(30);
+        const ER_PLOT = eraseThreshold(25);
+        
+        drawings.forEach(d => { 
+            if(d.type === 'freehand') {
+                d.pts = d.pts.filter(pt => Math.hypot(sx - toScreen(pt.x, pt.y).x, sy - toScreen(pt.x, pt.y).y) > ER_FREE); 
+            }
+            else if (d.type === 'circle') {
+                let pC = toScreen(d.mX1, d.mY1);
+                let rS = Math.hypot(toScreen(d.mX2, d.mY2).x - pC.x, toScreen(d.mX2, d.mY2).y - pC.y);
+                let distToCircleEdge = Math.abs(Math.hypot(sx - pC.x, sy - pC.y) - rS);
+                
+                if (distToCircleEdge < ER_EDGE) {
+                    let hitAngle = Math.atan2(sy - pC.y, sx - pC.x);
+                    d.type = 'arc';
+                    let gap = 0.35;
+                    let startA = hitAngle + gap;
+                    let endA = hitAngle + (Math.PI * 2) - gap;
+                    
+                    if (startA > Math.PI * 2) startA -= Math.PI * 2;
+                    if (endA > Math.PI * 2) endA -= Math.PI * 2;
+                    
+                    d.startAngle = startA;
+                    d.endAngle = endA;
+                }
+            }
+            else if (d.type === 'arc') {
+                let pC = toScreen(d.mX1, d.mY1);
+                let rS = Math.hypot(toScreen(d.mX2, d.mY2).x - pC.x, toScreen(d.mX2, d.mY2).y - pC.y);
+                let distToArcEdge = Math.abs(Math.hypot(sx - pC.x, sy - pC.y) - rS);
+                
+                if (distToArcEdge < ER_EDGE) {
+                    let hitAngle = Math.atan2(sy - pC.y, sx - pC.x);
+                    let normStart = d.startAngle || 0;
+                    let normEnd = d.endAngle || Math.PI;
+                    
+                    d.endAngle = hitAngle - 0.2;
+                }
+            }
+            else if (['segment', 'line', 'ray', 'vector'].includes(d.type)) {
+                let p1 = toScreen(d.mX1, d.mY1);
+                let p2 = toScreen(d.mX2, d.mY2);
+                if (distToSegment({x: sx, y: sy}, p1, p2) < ER_LINE) {
+                    d.isDeleted = true;
+                }
+            }
+            else if (d.type === 'text') {
+                let p = toScreen(d.mX1, d.mY1);
+                if (Math.hypot(sx - p.x, sy - p.y) < ER_TEXT) {
+                    d.isDeleted = true;
+                }
+            }
+        });
+
+        drawings = drawings.filter(d => !d.isDeleted && (d.type !== 'freehand' || d.pts.length > 1));
+        
+        plots = plots.filter(p => {
+            let pScreen = toScreen(p.mx, p.my);
+            return Math.hypot(sx - pScreen.x, sy - pScreen.y) > ER_PLOT;
+        });
+    }
+
+    function distToSegment(p, v, w) {
+        let l2 = (v.x - w.x)*(v.x - w.x) + (v.y - w.y)*(v.y - w.y);
+        if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    }
+
+    function processLassoSelection() {
+        if (lassoPoints.length < 3) return;
+        selectedPlotIds = []; selectedDrawingIds = [];
+        plots.forEach(p => {
+            let s = toScreen(p.mx, p.my);
+            if (isPointInPolygon(s, lassoPoints)) selectedPlotIds.push(p.id);
+        });
+        drawings.forEach(d => {
+            if (d.type === 'freehand') {
+                if (d.pts?.length && d.pts.some(pt => isPointInPolygon(toScreen(pt.x, pt.y), lassoPoints))) {
+                    selectedDrawingIds.push(d.id);
+                }
+                return;
+            }
+            if (typeof d.mX1 !== 'number' || typeof d.mY1 !== 'number') return;
+            let s1 = toScreen(d.mX1, d.mY1);
+            let s2 = typeof d.mX2 === 'number' && typeof d.mY2 === 'number'
+                ? toScreen(d.mX2, d.mY2) : s1;
+            if (isPointInPolygon(s1, lassoPoints) &&
+                (d.type === 'circle' || d.type === 'arc' ||
+                 isPointInPolygon(s2, lassoPoints))) {
+                selectedDrawingIds.push(d.id);
+            }
+        });
+    }
+
+    function isPointInPolygon(p, polygon) {
+        let isInside = false;
+        let minX = polygon[0].x, maxX = polygon[0].x;
+        let minY = polygon[0].y, maxY = polygon[0].y;
+        for (let n = 1; n < polygon.length; n++) {
+            let q = polygon[n];
+            minX = Math.min(q.x, minX); maxX = Math.max(q.x, maxX);
+            minY = Math.min(q.y, minY); maxY = Math.max(q.y, maxY);
+        }
+        if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) return false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            if ((polygon[i].y > p.y) !== (polygon[j].y > p.y) &&
+                p.x < (polygon[j].x - polygon[i].x) * (p.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x) {
+                isInside = !isInside;
+            }
+        }
+        return isInside;
+    }
+
+    function saveData() {
+        const data = {
+            version: 2,
+            drawings, plots, activeMeasures, groups, labelIndex, gridType,
+            coordStepUnit, showCoordLabels, cachedJsFormula,
+            kidsFormulaInputValue: kidsFormulaInput.value,
+            gridSettings: { ...gridSettings }
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = `blackboard_math_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    }
+    function triggerJsonUpload() { document.getElementById('jsonInput').click(); }
+    function loadData(input) {
+        const file = input.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                saveHistory();
+                drawings = Array.isArray(data.drawings) ? data.drawings : [];
+                plots = Array.isArray(data.plots) ? data.plots : [];
+                activeMeasures = Array.isArray(data.activeMeasures) ? data.activeMeasures : [];
+                groups = Array.isArray(data.groups) ? data.groups : [];
+                labelIndex = Number.isFinite(data.labelIndex) ? data.labelIndex : 0;
+                gridType = Number.isFinite(data.gridType) && data.gridType >= 0 && data.gridType <= 4 ? data.gridType : 1;
+                coordStepUnit = Number.isFinite(data.coordStepUnit) && data.coordStepUnit > 0 ? data.coordStepUnit : 1.0;
+                showCoordLabels = data.showCoordLabels !== undefined ? Boolean(data.showCoordLabels) : true;
+                if (data.gridSettings && typeof data.gridSettings === 'object') {
+                    Object.assign(gridSettings, data.gridSettings);
+                }
+                if (typeof data.kidsFormulaInputValue === 'string') { kidsFormulaInput.value = data.kidsFormulaInputValue; }
+                if (typeof data.cachedJsFormula === 'string') { cachedJsFormula = data.cachedJsFormula; }
+                syncGridSettingsUI();
+                cycleGridTextOnly(); parseAndSyncFractionDisplay(kidsFormulaInput.value);
+            } catch (err) { alert('ファイルの読み込みに失敗しました'); }
+        };
+        reader.readAsText(file);
+    }
+
+    // イベントリスナー設定
+    canvas.addEventListener('pointerdown', e => {
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        startDrawing(e);
+    });
+    canvas.addEventListener('pointermove', draw);
+    canvas.addEventListener('pointerup', e => {
+        stopDrawing(e);
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    });
+    canvas.addEventListener('pointercancel', e => {
+        stopDrawing(e);
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    // ツールバーのドラッグ移動機能
+    const toolbar = document.getElementById('myToolbar');
+    const handle = document.getElementById('myToolbarHandle');
+    let isTbDragging = false, tbTbStartX = 0, tbTbStartY = 0, tbElemStartX = 0, tbElemStartY = 0;
+
+    handle.addEventListener('pointerdown', e => {
+        isTbDragging = true;
+        tbTbStartX = e.clientX; tbTbStartY = e.clientY;
+        const rect = toolbar.getBoundingClientRect();
+        tbElemStartX = rect.left; tbElemStartY = rect.top;
+        handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', e => {
+        if (!isTbDragging) return;
+        let nx = tbElemStartX + (e.clientX - tbTbStartX);
+        let ny = tbElemStartY + (e.clientY - tbTbStartY);
+        toolbar.style.left = `${Math.max(0, Math.min(window.innerWidth - 100, nx))}px`;
+        toolbar.style.top = `${Math.max(0, Math.min(window.innerHeight - 100, ny))}px`;
+    });
+    handle.addEventListener('pointerup', e => { isTbDragging = false; handle.releasePointerCapture(e.pointerId); });
+
+
+    // キーボード操作：黒板をPCのキーボードからも素早く操作
+    window.addEventListener('keydown', e => {
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+            e.preventDefault(); e.shiftKey ? handleRedo() : handleUndo(); return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+            e.preventDefault(); handleRedo(); return;
+        }
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+            isDrawing = false; lassoPoints = []; eraserPath = [];
+        }
+    });
+
+    // 初期化実行
+    updateDropdowns();
+    renderKidsKeyboard();
+    syncGridSettingsUI();
+    updateInfoMeterInstructions();
+    tick();
+
+
+/* ===== 拡張機能本体 ===== */
+let blackboardPages=[]; let currentPageIndex=0; let autoSaveEnabled=false; let coverMode='';
+function extToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(extToast._t);extToast._t=setTimeout(()=>t.classList.remove('show'),1800)}
+function openExtPanel(name){const p=document.getElementById('ext-'+name);const alreadyOpen=p&&p.classList.contains('open');document.querySelectorAll('.ext-panel').forEach(el=>el.classList.remove('open'));if(p&&!alreadyOpen){p.classList.add('open');if(name==='bg')syncBgPanel();if(name==='pages')renderPageList()}}
+function closeExtPanels(){document.querySelectorAll('.ext-panel').forEach(p=>p.classList.remove('open'))}
+// 背景設定パネルなどの外側をタップ/クリックしたら自動的に閉じる（タッチ端末でEscキーが使えないため必須）
+document.addEventListener('pointerdown',e=>{const openPanel=document.querySelector('.ext-panel.open');if(!openPanel)return;if(e.target.closest('.ext-panel')||e.target.closest('.ext-dock'))return;closeExtPanels()},true);
+function setGridType(n){gridType=n;cycleGridTextOnly();syncBgPanel();renderPageList();drawAll()}
+function syncBgPanel(){
+ const map=[['bgBase','base','bgBaseVal'],['bgFour','four','bgFourVal'],['bgCross','cross','bgCrossVal'],['bgOpacity','opacity','bgOpacityVal']];
+ map.forEach(([id,k,v])=>{const el=document.getElementById(id);if(el){el.value=extBg[k];document.getElementById(v).textContent=(k==='opacity'?Math.round(extBg[k]*100)+'%':extBg[k]);}});
+  const _gs=document.getElementById('gridSnap');if(_gs)_gs.checked=!!extBg.snap;const _gl=document.getElementById('gridLabels');if(_gl)_gl.checked=!!extBg.labels;
+ document.querySelectorAll('#gridChoiceButtons button').forEach(b=>b.classList.toggle('active',Number(b.dataset.grid)===gridType));
+}
+function resetBackgroundSettings(){extBg={...EXT_DEFAULTS};gridSettings.snapEnabled=false;baseGridSize=extBg.base;showCoordLabels=extBg.labels;coordStepUnit=1.0;Object.assign(gridSettings,{meshSize:EXT_DEFAULTS.base,fourLineGap:EXT_DEFAULTS.four,crossCellSize:EXT_DEFAULTS.cross,coordinateScale:1.0,opacity:EXT_DEFAULTS.opacity});syncBgPanel();syncGridSettingsUI();drawAll();extToast('背景設定を初期化しました')}
+['bgBase','bgFour','bgCross','bgOpacity'].forEach(id=>document.getElementById(id)?.addEventListener('input',e=>{const k={bgBase:'base',bgFour:'four',bgCross:'cross',bgOpacity:'opacity'}[id];extBg[k]=Number(e.target.value);if(k==='base')baseGridSize=extBg.base;const gsKey={base:'meshSize',four:'fourLineGap',cross:'crossCellSize',opacity:'opacity'}[k];gridSettings[gsKey]=extBg[k];syncBgPanel();syncGridSettingsUI();drawAll();}));
+document.getElementById('gridSnap')?.addEventListener('change',e=>{extBg.snap=e.target.checked;gridSettings.snapEnabled=e.target.checked;syncGridSettingsUI()});document.getElementById('gridLabels')?.addEventListener('change',e=>{extBg.labels=e.target.checked;showCoordLabels=extBg.labels;drawAll()});
+function snapMath(m){if(!extBg.snap&&!gridSettings.snapEnabled)return m;const step=1;return{x:Math.round(m.x/step)*step,y:Math.round(m.y/step)*step}}
+function pageState(){return {drawings:cloneState(drawings),plots:cloneState(plots),activeMeasures:cloneState(activeMeasures),groups:cloneState(groups),labelIndex,gridType,coordStepUnit,showCoordLabels,cachedJsFormula,kidsFormulaInputValue:kidsFormulaInput.value,offsetX,offsetY,scale,extBg:{...extBg}}}
+function applyPageState(s){drawings=s?.drawings||[];plots=s?.plots||[];activeMeasures=s?.activeMeasures||[];groups=s?.groups||[];labelIndex=s?.labelIndex||0;gridType=s?.gridType??1;coordStepUnit=s?.coordStepUnit||1;showCoordLabels=s?.showCoordLabels??true;cachedJsFormula=s?.cachedJsFormula||cachedJsFormula;if(s?.kidsFormulaInputValue)kidsFormulaInput.value=s.kidsFormulaInputValue;offsetX=s?.offsetX||0;offsetY=s?.offsetY||0;scale=s?.scale||1;if(s?.extBg)extBg={...EXT_DEFAULTS,...s.extBg};gridSettings.snapEnabled=!!extBg.snap;baseGridSize=extBg.base;parseAndSyncFractionDisplay(kidsFormulaInput.value);cycleGridTextOnly();syncBgPanel();}
+function initPages(){blackboardPages=[{name:'黒板1',state:pageState()}];currentPageIndex=0;updatePageUI()}
+function commitCurrentPage(){if(blackboardPages[currentPageIndex])blackboardPages[currentPageIndex].state=pageState()}
+function switchPage(i){if(i<0||i>=blackboardPages.length)return;commitCurrentPage();currentPageIndex=i;applyPageState(blackboardPages[i].state);selectedPlotIds=[];selectedDrawingIds=[];undoStack=[];playbookRedo=[];updatePageUI();extToast(blackboardPages[i].name)}
+function prevBlackboardPage(){switchPage(currentPageIndex-1)}function nextBlackboardPage(){switchPage(currentPageIndex+1)}
+function addBlackboardPage(){commitCurrentPage();const n=blackboardPages.length+1;blackboardPages.push({name:'黒板'+n,state:{drawings:[],plots:[],activeMeasures:[],groups:[],labelIndex:0,gridType,coordStepUnit,showCoordLabels,cachedJsFormula,kidsFormulaInputValue:kidsFormulaInput.value,offsetX:0,offsetY:0,scale:1,extBg:{...extBg}}});switchPage(blackboardPages.length-1);renderPageList()}
+function duplicateBlackboardPage(){commitCurrentPage();const src=blackboardPages[currentPageIndex];blackboardPages.splice(currentPageIndex+1,0,{name:src.name+'（コピー）',state:JSON.parse(JSON.stringify(src.state))});switchPage(currentPageIndex+1);renderPageList()}
+function renameBlackboardPage(){const v=document.getElementById('pageNameInput').value.trim();if(!v)return extToast('ページ名を入力してください');blackboardPages[currentPageIndex].name=v;document.getElementById('pageNameInput').value='';updatePageUI();renderPageList()}
+function deleteBlackboardPage(){if(blackboardPages.length<=1)return extToast('最後の1ページは削除できません');blackboardPages.splice(currentPageIndex,1);currentPageIndex=Math.max(0,currentPageIndex-1);applyPageState(blackboardPages[currentPageIndex].state);undoStack=[];playbookRedo=[];updatePageUI();renderPageList()}
+function renderPageList(){const el=document.getElementById('pageList');if(!el)return;el.innerHTML=blackboardPages.map((p,i)=>`<button onclick="switchPage(${i})" style="display:block;width:100%;margin:4px 0;padding:8px;text-align:left;background:${i===currentPageIndex?'#117a65':'#18231d'};color:#fff;border:1px solid ${i===currentPageIndex?'#00f5d4':'#405247'};border-radius:7px;cursor:pointer">${i+1}. ${escapeHtml(p.name)}</button>`).join('')}
+function updatePageUI(){document.getElementById('pageTitle').textContent=`${currentPageIndex+1} / ${blackboardPages.length}　${blackboardPages[currentPageIndex]?.name||''}`;document.getElementById('pageNameInput').value=blackboardPages[currentPageIndex]?.name||'';renderPageList()}
+function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function toggleCover(mode){const c=document.getElementById('blackboardCover');coverMode=mode;c.className='cover open'+(mode==='left'?' left':mode==='right'?' right':'');}
+function clearCover(){coverMode='';document.getElementById('blackboardCover').className='cover'}
+function insertTextBox(){const text=prompt('黒板に追加する文字を入力してください');if(!text)return;const m=toMath(canvas.width/2,canvas.height/2);saveHistory();drawings.push({id:generateUniqueId(),type:'text',mX1:m.x,mY1:m.y,text,color:currentColor,thickness:currentThickness,fontSize:28,penType:'chalk'});extToast('文字を追加しました')}
+function addTitleText(){const text=prompt('見出しを入力してください');if(!text)return;saveHistory();drawings.push({id:generateUniqueId(),type:'text',mX1:-7,mY1:5,text,color:'#ffff00',fontSize:36,thickness:4,penType:'chalk'});}
+function lessonPreset(kind){closeExtPanels();if(!isMathModeActive) toggleMathMode();if(kind==='function'){setGridType(4);cachedJsFormula='0.2*x*x';kidsFormulaInput.value='0.2*x*x';parseAndSyncFractionDisplay(kidsFormulaInput.value)}else if(kind==='geometry'){setGridType(1);changeMode('plot',document.getElementById('btn-plot'))}else if(kind==='proof'){setGridType(1);changeMode('select',document.getElementById('btn-select'))}else{setGridType(1);changeMode('free',document.getElementById('btn-free'))}updateLessonChip();extToast(kind==='intro'?'10分モードを開始しました':'授業プリセットを適用しました')}
+function updateLessonChip(){const g=document.getElementById('gradeSelect')?.value||'中学校数学';const u=document.getElementById('unitSelect')?.value||'';document.getElementById('lessonChip').innerHTML=`📘 <b>授業モード</b>　${escapeHtml(g)}・${escapeHtml(u)}`}
+document.getElementById('gradeSelect')?.addEventListener('change',updateLessonChip);document.getElementById('unitSelect')?.addEventListener('change',updateLessonChip);
+function saveLocalSnapshot(){try{commitCurrentPage();localStorage.setItem('digitalBlackboardSnapshot',JSON.stringify({pages:blackboardPages,currentPageIndex,autoSaveEnabled:true}));extToast('ブラウザに保存しました')}catch(e){extToast('ブラウザ保存に失敗しました（容量不足の可能性）')}}
+function restoreLocalSnapshot(){let raw=null;try{raw=localStorage.getItem('digitalBlackboardSnapshot')}catch(e){return extToast('保存データがありません')};if(!raw)return extToast('保存データがありません');try{const d=JSON.parse(raw);blackboardPages=d.pages||[];currentPageIndex=Math.min(d.currentPageIndex||0,blackboardPages.length-1);applyPageState(blackboardPages[currentPageIndex].state);updatePageUI();extToast('ブラウザ保存を復元しました')}catch(e){extToast('復元に失敗しました')}}
+document.getElementById('autoSaveToggle')?.addEventListener('change',e=>{autoSaveEnabled=e.target.checked;if(autoSaveEnabled)saveLocalSnapshot()});
+setInterval(()=>{if(autoSaveEnabled&&blackboardPages.length){try{commitCurrentPage();localStorage.setItem('digitalBlackboardSnapshot',JSON.stringify({pages:blackboardPages,currentPageIndex,autoSaveEnabled:true}))}catch(e){autoSaveEnabled=false;const t=document.getElementById('autoSaveToggle');if(t)t.checked=false}}},5000);
+// text drawing extension (single canonical renderer: multiline safe)
+const _drawGeomObject=drawGeomObject;drawGeomObject=function(d){if(d.type==='text'){ctx.save();ctx.fillStyle=d.color||'#fff';ctx.font=`bold ${d.fontSize||28}px sans-serif`;ctx.textBaseline='top';const lines=String(d.text||'').split(/\n/);const s=toScreen(d.mX1||0,d.mY1||0);lines.forEach((line,i)=>ctx.fillText(line,s.x,s.y+i*(d.fontSize||28)*1.35));ctx.restore();return}_drawGeomObject(d)};
+// safer history includes viewport/background state
+const _saveHistory=saveHistory;saveHistory=function(){_saveHistory();if(undoStack.length)undoStack[undoStack.length-1].viewport={offsetX,offsetY,scale,gridType,extBg:{...extBg}}};
+const _applyState=applyState;applyState=function(s){_applyState(s);if(s.viewport){offsetX=s.viewport.offsetX||0;offsetY=s.viewport.offsetY||0;scale=s.viewport.scale||1;if(s.viewport.extBg)extBg={...EXT_DEFAULTS,...s.viewport.extBg};gridSettings.snapEnabled=!!extBg.snap;gridType=s.viewport.gridType??gridType;baseGridSize=extBg.base}syncBgPanel();cycleGridTextOnly()};
+// JSON save/load: retain new settings and pages
+const _saveData=saveData;saveData=function(){commitCurrentPage();const data={version:2,drawings,plots,activeMeasures,groups,labelIndex,gridType,coordStepUnit,showCoordLabels,cachedJsFormula,kidsFormulaInputValue:kidsFormulaInput.value,extBg:{...extBg},gridSnapEnabled:gridSettings.snapEnabled,pages:blackboardPages,currentPageIndex};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`digital_blackboard_${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+const _loadData=loadData;loadData=function(input){const file=input.files[0];if(!file)return;const reader=new FileReader();reader.onload=e=>{try{const d=JSON.parse(e.target.result);saveHistory();if(Array.isArray(d.pages)&&d.pages.length){blackboardPages=d.pages;currentPageIndex=Math.min(d.currentPageIndex||0,blackboardPages.length-1);applyPageState(blackboardPages[currentPageIndex].state)}else{drawings=d.drawings||[];plots=d.plots||[];activeMeasures=d.activeMeasures||[];groups=d.groups||[];labelIndex=d.labelIndex||0;gridType=d.gridType??1;coordStepUnit=d.coordStepUnit||1;showCoordLabels=d.showCoordLabels??true;cachedJsFormula=d.cachedJsFormula||cachedJsFormula;if(d.kidsFormulaInputValue)kidsFormulaInput.value=d.kidsFormulaInputValue;extBg={...EXT_DEFAULTS,...(d.extBg||{})};baseGridSize=extBg.base}if(typeof d.gridSnapEnabled==='boolean'){gridSettings.snapEnabled=d.gridSnapEnabled;extBg.snap=d.gridSnapEnabled}else{gridSettings.snapEnabled=!!extBg.snap}parseAndSyncFractionDisplay(kidsFormulaInput.value);cycleGridTextOnly();syncGridSettingsUI();syncBgPanel();updatePageUI();extToast('読み込みました')}catch(err){alert('ファイルの読み込みに失敗しました')}};reader.readAsText(file)};
+// Replace grid renderer with configurable version
+const _drawBackgroundGrids=drawBackgroundGrids;drawBackgroundGrids=function(){if(gridType===0)return;const w=canvas.width,h=canvas.height,cx=w/2+offsetX,cy=h/2+offsetY,step=baseGridSize*scale;ctx.save();
+ const op=extBg.opacity;
+ if(gridType===1||gridType===4){ctx.strokeStyle=`rgba(255,255,255,${op})`;ctx.lineWidth=1;for(let x=((cx%step)+step)%step;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}for(let y=((cy%step)+step)%step;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}}
+ if(gridType===2){const block=step*2,sub=Math.max(4,extBg.four*scale);for(let y=((cy%block)+block)%block;y<h;y+=block){for(let i=0;i<4;i++){ctx.strokeStyle=i===2?`rgba(255,77,77,.35)`:`rgba(255,255,255,${op*1.3})`;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y+i*sub);ctx.lineTo(w,y+i*sub);ctx.stroke()}}}
+ if(gridType===3){const box=step*extBg.cross;ctx.strokeStyle='rgba(46,139,87,.4)';ctx.lineWidth=1.5;for(let x=((cx%box)+box)%box;x<w;x+=box){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}for(let y=((cy%box)+box)%box;y<h;y+=box){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}ctx.strokeStyle='rgba(46,139,87,.25)';ctx.setLineDash([4,4]);let half=box/2;for(let x=((cx%box)+box)%box-half;x<w;x+=box){if(x>0){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}}for(let y=((cy%box)+box)%box-half;y<h;y+=box){if(y>0){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}}}
+ if(gridType===4){ctx.setLineDash([]);ctx.strokeStyle='rgba(255,255,255,.45)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(w,cy);ctx.stroke();ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,h);ctx.stroke();if(extBg.labels){ctx.fillStyle='rgba(255,255,255,.65)';ctx.font='11px monospace';let sm=toMath(0,h),em=toMath(w,0);for(let mx=Math.ceil(sm.x/coordStepUnit)*coordStepUnit;mx<=em.x;mx+=coordStepUnit)if(Math.abs(mx)>.001)ctx.fillText(mx.toString(),toScreen(mx,0).x-6,cy+14);for(let my=Math.ceil(sm.y/coordStepUnit)*coordStepUnit;my<=em.y;my+=coordStepUnit)if(Math.abs(my)>.001)ctx.fillText(my.toString(),cx+8,toScreen(0,my).y+4)}}ctx.restore()};
+// pointer snapping for point/line creation
+const _startDrawing=startDrawing;startDrawing=function(e){if(e.target!==canvas)return;if(typeof isSnapEnabled==='function'?!isSnapEnabled():!extBg.snap){_startDrawing(e);return}const m=snapMath(toMath(e.clientX,e.clientY));const pe=new Proxy(e,{get(t,p){if(p==='clientX')return toScreen(m.x,m.y).x;if(p==='clientY')return toScreen(m.x,m.y).y;return Reflect.get(t,p)}});_startDrawing(pe)};
+// keyboard shortcuts (second handler: Ctrl/Cmd+Z/Y is handled by the core handler above to avoid double undo)
+window.addEventListener('keydown',e=>{if(e.target&&['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(e.ctrlKey||e.metaKey)return;if(e.key==='ArrowLeft'){prevBlackboardPage()}else if(e.key==='ArrowRight'){nextBlackboardPage()}else if(e.key==='Escape'){closeExtPanels();clearCover()}else if(e.code==='Space'){e.preventDefault();if(coverMode)clearCover();else toggleCover('all')}});
+window.addEventListener('beforeunload',()=>{if(autoSaveEnabled){try{commitCurrentPage();localStorage.setItem('digitalBlackboardSnapshot',JSON.stringify({pages:blackboardPages,currentPageIndex,autoSaveEnabled:true}))}catch(e){}}});
+// Initialize extension after original initialization
+extBg={...EXT_DEFAULTS,base:baseGridSize,labels:showCoordLabels};syncBgPanel();initPages();updateLessonChip();
+
+</script>
+
+
+<!-- ===== 完成版・公開版 UI ===== -->
+<style>
+.bb-welcome{position:fixed;inset:0;z-index:3000;background:rgba(4,9,7,.97);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.bb-welcome.hidden{display:none}.bb-welcome-card{width:min(900px,96vw);max-height:92vh;overflow:auto;background:#101a14;border:1px solid #00f5d4;border-radius:22px;box-shadow:0 30px 100px rgba(0,0,0,.7);padding:28px;color:#fff}
+.bb-welcome h1{margin:0 0 8px;font-size:clamp(24px,4vw,42px);color:#00f5d4}.bb-welcome .sub{color:#b8c8be;margin-bottom:22px}.bb-launch-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.bb-launch{min-height:125px;border:1px solid #3c5a4a;background:#17241b;color:#fff;border-radius:14px;padding:16px;text-align:left;cursor:pointer}.bb-launch:hover{border-color:#00f5d4;transform:translateY(-1px)}.bb-launch strong{display:block;font-size:17px;margin-bottom:7px;color:#fff}.bb-launch span{font-size:12px;color:#a9b8ae;line-height:1.6}.bb-welcome-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;align-items:center;flex-wrap:wrap}.bb-small{font-size:11px;color:#8fa095;margin-right:auto}.bb-primary{background:#117a65!important;border-color:#00f5d4!important}
+.bb-help{position:fixed;inset:0;z-index:2900;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;padding:18px}.bb-help.open{display:flex}.bb-help-card{width:min(850px,96vw);max-height:88vh;overflow:auto;background:#101a14;border:1px solid #00f5d4;border-radius:18px;color:#fff;padding:22px}.bb-help-card h2{color:#00f5d4}.bb-help-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.bb-help-item{background:#18231d;border:1px solid #31483a;border-radius:10px;padding:12px}.bb-help-item b{color:#ffff00}.bb-help-close{float:right;background:#26352d;color:#fff;border:1px solid #53675a;border-radius:7px;padding:7px 11px;cursor:pointer}
+.bb-beginner .toolbar,.bb-beginner .info-panel{display:none!important}.bb-beginner .ext-dock{max-width:430px}.bb-beginner .ext-btn{font-size:12px;padding-inline:13px}
+.bb-presentation .ext-dock,.bb-presentation .lesson-chip,.bb-presentation .pagebar,.bb-presentation .info-panel,.bb-presentation .toolbar{opacity:0;pointer-events:none;transition:opacity .2s}.bb-presentation .canvas-ui-hide{display:none}
+.bb-presentation-hint{position:fixed;right:14px;bottom:12px;z-index:2600;background:rgba(0,0,0,.55);color:#ddd;padding:7px 10px;border-radius:8px;font-size:11px;opacity:.0;pointer-events:none}.bb-presentation .bb-presentation-hint{opacity:.65}
+.bb-lesson-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-top:12px}.bb-lesson-card{background:#17241b;border:1px solid #3d5748;border-radius:10px;padding:11px;color:#fff;cursor:pointer;text-align:left}.bb-lesson-card:hover{border-color:#00f5d4}.bb-lesson-card b{display:block;color:#00f5d4;margin-bottom:3px}.bb-lesson-card small{color:#aab8ae}
+.bb-note{width:100%;min-height:85px;resize:vertical;box-sizing:border-box;background:#070b08;color:#fff;border:1px solid #425447;border-radius:8px;padding:9px;font:inherit}
+.bb-timer{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:2700;background:#0b1711;border:1px solid #00f5d4;border-radius:12px;padding:8px 14px;color:#fff;font:bold 20px monospace;display:none;box-shadow:0 8px 30px rgba(0,0,0,.5)}.bb-timer.show{display:block}.bb-timer button{margin-left:8px;background:#26352d;color:#fff;border:1px solid #526659;border-radius:6px;padding:4px 7px;cursor:pointer}
+@media(max-width:760px){.bb-launch-grid,.bb-help-grid,.bb-lesson-cards{grid-template-columns:1fr}.bb-welcome-card{padding:20px}}
+</style>
+
+<div class="bb-welcome" id="bbWelcome">
+  <div class="bb-welcome-card">
+    <h1>📐 中学校数学 デジタル黒板</h1>
+    <div class="sub">授業で「すぐ使える」ことを最優先にした完成版・公開版です。既存の作図・測定・関数・保存などの機能はそのまま利用できます。</div>
+    <div class="bb-launch-grid">
+      <button class="bb-launch bb-primary" onclick="bbStart('beginner')"><strong>🌱 初心者モード</strong><span>まず10分。基本操作だけを前面に出して、迷わず黒板を始めます。</span></button>
+      <button class="bb-launch" onclick="bbStart('lesson')"><strong>🎓 授業モード</strong><span>学年・分野から選び、図形・関数・証明などの授業プリセットを開始します。</span></button>
+      <button class="bb-launch" onclick="bbStart('demo')"><strong>🚀 デモ授業を見る</strong><span>サンプル授業を実際の黒板ページとして読み込み、操作を試せます。</span></button>
+    </div>
+    <div class="bb-welcome-footer">
+      <span class="bb-small">ヒント：授業中は「Space」で黒板を隠す、「← →」でページ移動できます。</span>
+      <button class="ext-btn" onclick="bbOpenHelp()">❓ 操作説明</button>
+      <button class="ext-btn" onclick="bbStart('normal')">通常モードで開始</button>
+    </div>
+  </div>
+</div>
+
+<div class="bb-help" id="bbHelp">
+  <div class="bb-help-card">
+    <button class="bb-help-close" onclick="bbCloseHelp()">閉じる</button>
+    <h2>❓ 操作説明</h2>
+    <p>授業中は「描く」「作図」「選択」「測定」など、元からあるツールをそのまま使えます。</p>
+    <div class="bb-help-grid">
+      <div class="bb-help-item"><b>🖊 描く</b><br>黒板へ手書きします。色・太さ・ペン種類も従来どおり変更できます。</div>
+      <div class="bb-help-item"><b>📐 作図</b><br>点、線分、直線、半直線、円、円弧、平行・垂直などを選べます。</div>
+      <div class="bb-help-item"><b>📚 ページ</b><br>導入→問題→解答→まとめのように黒板を複数枚に分けられます。</div>
+      <div class="bb-help-item"><b>🎨 背景</b><br>方眼、4線、十字ます、座標平面の種類と大きさを変更できます。</div>
+      <div class="bb-help-item"><b>👁 隠す</b><br>答えや図を一時的に隠し、発表後に表示できます。Spaceでも切替可能です。</div>
+      <div class="bb-help-item"><b>💾 保存</b><br>JSON保存・読込に加え、ブラウザへの自動保存も利用できます。</div>
+      <div class="bb-help-item"><b>↶ Undo / Redo</b><br>Ctrl/Cmd+Z、Ctrl/Cmd+Y。授業中の操作ミスをすぐ戻せます。</div>
+      <div class="bb-help-item"><b>🖥 発表モード</b><br>UIを一時的に隠して、黒板を生徒へ見せることに集中できます。</div>
+    </div>
+  </div>
+</div>
+
+<div class="bb-timer" id="bbTimer">10:00 <button onclick="bbTimerToggle()">⏯</button><button onclick="bbTimerStop()">×</button></div>
+<div class="bb-presentation-hint">Escで通常表示へ</div>
+
+<script>
+(function(){
+  const W='bbWelcome', H='bbHelp';
+  let bbPresentation=false, bbTimerId=null, bbTimerSec=600, bbTimerRunning=false;
+  function q(id){return document.getElementById(id)}
+  window.bbOpenHelp=()=>q(H).classList.add('open');
+  window.bbCloseHelp=()=>q(H).classList.remove('open');
+  window.bbStart=(mode)=>{
+    q(W).classList.add('hidden');
+    if(mode==='beginner'){document.body.classList.add('bb-beginner'); extToast('初心者モード：まずは「描く」から始めましょう');}
+    else if(mode==='lesson'){openExtPanel('lesson');}
+    else if(mode==='demo'){bbLoadDemo('linear');}
+    else if(mode==='normal'){document.body.classList.remove('bb-beginner');}
+    localStorage.setItem('bbWelcomeSeen','1');
+  };
+  window.bbShowWelcome=()=>q(W).classList.remove('hidden');
+  window.bbToggleBeginner=()=>{document.body.classList.toggle('bb-beginner');extToast(document.body.classList.contains('bb-beginner')?'初心者モード ON':'通常モード ON')};
+  window.bbTogglePresentation=async()=>{
+    bbPresentation=!bbPresentation; document.body.classList.toggle('bb-presentation',bbPresentation);
+    if(bbPresentation && document.documentElement.requestFullscreen){try{await document.documentElement.requestFullscreen()}catch(e){}}
+    if(!bbPresentation && document.fullscreenElement){try{await document.exitFullscreen()}catch(e){}}
+    extToast(bbPresentation?'発表モード ON':'通常表示に戻しました');
+  };
+  document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement && bbPresentation){bbPresentation=false;document.body.classList.remove('bb-presentation')}});
+
+  function demoPage(name, title, body, opts={}){
+    const base={drawings:[],plots:[],activeMeasures:[],groups:[],labelIndex:0,gridType:opts.gridType??1,coordStepUnit:1,showCoordLabels:opts.labels??true,cachedJsFormula:'x',kidsFormulaInputValue:'x',offsetX:0,offsetY:0,scale:1,extBg:{...extBg}};
+    const addText=(text,x,y,size=30,color='#fff')=>base.drawings.push({id:'demo_'+Math.random().toString(36).slice(2),type:'text',mX1:x,mY1:y,text,color,fontSize:size,thickness:3,penType:'chalk'});
+    addText(title,-10,7,34,'#ffff00'); addText(body,-10,4.7,23,'#fff');
+    return {name,state:base};
+  }
+  window.bbLoadDemo=(kind='linear')=>{
+    const pages=[];
+    if(kind==='linear'){
+      pages.push(demoPage('導入','一次関数：変化のようす','今日は y = 2x + 1 のグラフを考えます。', {gridType:4,labels:true}));
+      pages.push(demoPage('問題','問題','x が 1 増えると、y はいくつ増える？\nグラフから読み取ってみよう。', {gridType:4,labels:true}));
+      pages.push(demoPage('まとめ','まとめ','傾き a は「x が 1 増えたときの y の増加量」。\n切片 b は y 軸との交点。', {gridType:4,labels:true}));
+    } else if(kind==='geometry'){
+      pages.push(demoPage('導入','三角形の角','三角形の3つの角の和は何度？', {gridType:1}));
+      pages.push(demoPage('作図','作図','点・線分・角度測定を使って確かめよう。', {gridType:1}));
+      pages.push(demoPage('まとめ','まとめ','三角形の内角の和は 180°。', {gridType:1}));
+    } else {
+      pages.push(demoPage('導入','10分体験','① 描く　② 作図　③ ページ　④ 隠す　⑤ 保存', {gridType:1}));
+      pages.push(demoPage('操作','操作','右上の「背景」「黒板ページ」「授業モード」「授業ツール」を試してください。', {gridType:1}));
+    }
+    commitCurrentPage(); blackboardPages=pages; currentPageIndex=0; applyPageState(pages[0].state); updatePageUI(); drawAll(); extToast('サンプル授業を読み込みました');
+  };
+  window.bbLoadDemoLesson=(k)=>{bbLoadDemo(k);closeExtPanels()};
+
+  window.bbTimerStart=(minutes=10)=>{bbTimerSec=minutes*60;bbTimerRunning=true;q('bbTimer').classList.add('show');bbTimerRender();clearInterval(bbTimerId);bbTimerId=setInterval(()=>{if(bbTimerRunning){bbTimerSec=Math.max(0,bbTimerSec-1);bbTimerRender();if(bbTimerSec===0){bbTimerRunning=false;clearInterval(bbTimerId);extToast('時間です')}}},1000)};
+  window.bbTimerToggle=()=>{bbTimerRunning=!bbTimerRunning};
+  window.bbTimerStop=()=>{clearInterval(bbTimerId);bbTimerRunning=false;q('bbTimer').classList.remove('show')};
+  function bbTimerRender(){const m=Math.floor(bbTimerSec/60),s=bbTimerSec%60;const t=q('bbTimer');if(!t)return;const label=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+' ';if(t.firstChild&&t.firstChild.nodeType===3){t.firstChild.textContent=label}else{t.insertAdjacentText('afterbegin',label)}}
+
+  window.bbExportPNG=()=>{try{const a=document.createElement('a');a.download='digital_blackboard.png';a.href=canvas.toDataURL('image/png');a.click();extToast('黒板をPNG画像として保存しました')}catch(e){extToast('画像保存に失敗しました')}};
+  window.bbExportPNGWhite=()=>{try{const c=document.createElement('canvas');c.width=canvas.width;c.height=canvas.height;const x2=c.getContext('2d');x2.fillStyle='#ffffff';x2.fillRect(0,0,c.width,c.height);x2.drawImage(canvas,0,0);const a=document.createElement('a');a.download='digital_blackboard_white.png';a.href=c.toDataURL('image/png');a.click();extToast('白背景PNGを保存しました（印刷用）')}catch(e){extToast('画像保存に失敗しました')}};
+  window.bbClearPage=()=>{if(!confirm('現在の黒板を消去しますか？'))return;saveHistory();drawings=[];plots=[];activeMeasures=[];groups=[];drawAll();commitCurrentPage();extToast('現在の黒板を消去しました')};
+
+  // Page notes: preserve without changing existing page data format incompatibly.
+  window.bbSetPageNote=()=>{const v=q('bbPageNote')?.value??'';if(blackboardPages[currentPageIndex]){blackboardPages[currentPageIndex].note=v;extToast('ページメモを保存しました')}};
+  const oldSwitch=window.switchPage;
+  window.switchPage=function(i){oldSwitch(i);if(q('bbPageNote'))q('bbPageNote').value=blackboardPages[currentPageIndex]?.note||''};
+  const oldUpdate=window.updatePageUI;
+  window.updatePageUI=function(){oldUpdate();if(q('bbPageNote'))q('bbPageNote').value=blackboardPages[currentPageIndex]?.note||''};
+
+  // Add final public-facing controls to existing panels.
+  const tools=q('ext-tools');
+  if(tools){
+    tools.insertAdjacentHTML('beforeend',`<hr style="border-color:#29382f;margin:14px 0"><div class="quick-grid"><button onclick="bbToggleBeginner()">🌱 初心者/通常</button><button onclick="bbTogglePresentation()">🖥 発表モード</button><button onclick="bbTimerStart(5)">⏱ 5分タイマー</button><button onclick="bbTimerStart(10)">⏱ 10分タイマー</button><button onclick="bbTimerStart(15)">⏱ 15分タイマー</button><button onclick="bbExportPNG()">🖼 PNG保存</button><button onclick="bbExportPNGWhite()">⬜ 白背景PNG</button><button onclick="bbClearPage()">🧹 このページを消去</button><button onclick="bbOpenHelp()">❓ 操作説明</button></div>`);
+  }
+  const lesson=q('ext-lesson');
+  if(lesson){
+    lesson.insertAdjacentHTML('beforeend',`<hr style="border-color:#29382f;margin:14px 0"><div style="color:#00f5d4;font-weight:bold;font-size:12px">📚 サンプル授業</div><div class="bb-lesson-cards"><button class="bb-lesson-card" onclick="bbLoadDemoLesson('linear')"><b>中2・一次関数</b><small>導入 → 問題 → まとめ</small></button><button class="bb-lesson-card" onclick="bbLoadDemoLesson('geometry')"><b>中1・図形</b><small>角 → 作図 → まとめ</small></button><button class="bb-lesson-card" onclick="bbLoadDemoLesson('intro')"><b>10分体験</b><small>基本機能を試す</small></button></div>`);
+  }
+  const pages=q('ext-pages');
+  if(pages){pages.insertAdjacentHTML('beforeend',`<div style="margin-top:12px"><label style="font-size:11px;color:#00f5d4">📝 このページの先生メモ</label><textarea id="bbPageNote" class="bb-note" placeholder="授業のねらい、発問、板書メモなど"></textarea><button class="ext-btn" style="margin-top:6px" onclick="bbSetPageNote()">メモを保存</button></div>`)}
+
+  // First launch: show welcome unless user has already dismissed it.
+  if(!localStorage.getItem('bbWelcomeSeen')) setTimeout(()=>q(W).classList.remove('hidden'),50); else q(W).classList.add('hidden');
+  window.addEventListener('keydown',e=>{if(e.key==='Escape'){bbCloseHelp();if(bbPresentation)bbTogglePresentation()}});
+})();
+</script>
+
+<style>
+/* === Public Lesson Library === */
+.bb-library-panel{position:fixed;z-index:760;right:18px;top:92px;width:min(560px,calc(100vw - 36px));max-height:calc(100vh - 120px);overflow:auto;background:rgba(7,13,10,.97);border:1px solid rgba(0,245,212,.45);border-radius:14px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:16px;color:#eee;display:none}
+.bb-library-panel.open{display:block}
+.bb-library-head{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bb-library-head h3{margin:0;color:#00f5d4;font-size:16px}
+.bb-library-close{border:1px solid #456;background:#18251e;color:#fff;border-radius:7px;padding:6px 10px;cursor:pointer}
+.bb-library-filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.bb-library-filters select,.bb-library-filters input{width:100%;box-sizing:border-box;background:#0d1712;color:#fff;border:1px solid #365443;border-radius:7px;padding:8px}
+.bb-library-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.bb-lesson-card2{background:linear-gradient(145deg,#102019,#0b1510);border:1px solid #355b47;color:#fff;border-radius:10px;padding:11px;text-align:left;cursor:pointer;min-height:102px}
+.bb-lesson-card2:hover{border-color:#00f5d4;transform:translateY(-1px)}
+.bb-lesson-card2 b{display:block;color:#fff;font-size:13px;margin-bottom:5px}.bb-lesson-card2 small{display:block;color:#9bb3a5;line-height:1.45}.bb-lesson-card2 .tag{display:inline-block;color:#00f5d4;font-size:10px;margin-top:6px}
+.bb-lesson-detail{margin-top:12px;border-top:1px solid #294034;padding-top:10px;color:#b9c9bf;font-size:11px;line-height:1.6}
+.bb-lesson-detail b{color:#fff}.bb-lesson-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.bb-lesson-actions button{background:#117a65;border:1px solid #00f5d4;color:#fff;border-radius:7px;padding:7px 10px;cursor:pointer}
+.bb-public-badge{position:fixed;left:18px;bottom:16px;z-index:240;background:rgba(8,14,11,.88);border:1px solid rgba(0,245,212,.28);border-radius:9px;padding:6px 9px;color:#9db8aa;font-size:10px}
+@media(max-width:700px){.bb-library-grid{grid-template-columns:1fr}.bb-library-panel{left:8px;right:8px;width:auto;top:70px}}
+</style>
+<div class="bb-library-panel" id="bbLessonLibrary">
+  <div class="bb-library-head"><h3>📚 授業サンプルライブラリ</h3><button class="bb-library-close" onclick="bbCloseLessonLibrary()">閉じる</button></div>
+  <div class="bb-library-filters">
+    <select id="bbLibGrade"><option value="all">全学年</option><option value="1">中学1年</option><option value="2">中学2年</option><option value="3">中学3年</option></select>
+    <select id="bbLibUnit"><option value="all">全分野</option></select>
+    <input id="bbLibSearch" placeholder="単元名・キーワードで検索">
+    <select id="bbLibType"><option value="all">すべて</option><option value="starter">導入重視</option><option value="activity">活動重視</option><option value="summary">まとめ重視</option></select>
+  </div>
+  <div class="bb-library-grid" id="bbLessonLibraryGrid"></div>
+  <div class="bb-lesson-detail" id="bbLessonDetail">カードを選ぶと、ねらい・発問・板書構成を確認できます。</div>
+</div>
+<div class="bb-public-badge">📖 中学校数学・授業サンプル搭載版</div>
+
+<script>
+// ================================================================
+//  授業サンプル・ライブラリ拡張
+//  32レッスン / 3学年 / 4ページ構成 / 教師向けメモ・発問付き
+// ================================================================
+(function(){
+  const U={
+    '数と式':'数と式','方程式':'方程式','関数':'関数','図形':'図形','データ':'データの活用','確率':'確率'
+  };
+  const L=[];
+  function add(id,grade,unit,title,type,goal,prompt,pages,grid=1){L.push({id,grade,unit,title,type,goal,prompt,pages,grid});}
+  const P=(title,lines,notes='')=>({title,lines,notes});
+  // ---- 中1 ----
+  add('g1-positive',1,'数と式','正負の数：数直線で考える','starter','正負の数を数直線上の位置として捉える','0を基準に、+3と-3はどこにありますか？',[
+    P('導入',['今日のめあて','正負の数を数直線で表そう。','0を基準に「右が正、左が負」'],'実物の温度計や標高を例にする。'),
+    P('問題',['① +4 と -4 を数直線に表す','② どちらが0に近い？','③ -2 と +2 の大小を説明する'],'「数の大きさ」と「0からの距離」を分けて発問。'),
+    P('活動',['点を打つ → 比べる → 理由を言葉にする','絶対値という言葉につなげる。'],'ペンと点ツールを中心に使う。'),
+    P('まとめ',['正の数：0より大きい','負の数：0より小さい','絶対値：0からの距離'],'最後に自分の言葉で説明させる。')],1);
+  add('g1-calc',1,'数と式','正負の数：加法・減法','activity','数直線の移動として加減を説明する','-3+5 は数直線上でどのように動きますか？',[
+    P('導入',['めあて','正負の数の加法・減法を数直線で説明する']),P('問題',['(+3)+(-5)','(-2)-(+4)','( -6 )-(-3)']),P('活動',['右へ：正を加える','左へ：負を加える','減法は反対の数を加える']),P('まとめ',['a-b = a+(-b)','符号だけでなく「移動」を意識する'])],1);
+  add('g1-letter',1,'数と式','文字式：数量を式で表す','starter','数量の関係を文字式で表す','「りんご3個とx個」を、xを使って表すと？',[
+    P('導入',['x個の鉛筆','1本120円','代金はいくら？']),P('問題',['x+3','3x','120x','x÷4','どこが違う？']),P('活動',['言葉 → 式 → 単位を確認','式の意味を説明する']),P('まとめ',['文字式は数量の関係を短く表す','掛け算記号は省略できる'])],1);
+  add('g1-equation',1,'方程式','一次方程式：天びんで考える','activity','等式の性質を操作的に理解する','両辺に同じ数を足しても、天びんはつり合う？',[
+    P('導入',['x+3=8','「xは何？」を直感で予想']),P('問題',['x+3=8','2x=10','3x-4=11']),P('活動',['両辺に同じ操作','移項は「反対側へ移す魔法」ではない']),P('まとめ',['等式の両辺に同じ数を加減・乗除しても等式は保たれる'])],1);
+  add('g1-proportion',1,'関数','比例：変わり方を表にする','starter','比例の関係を表・式・グラフでつなぐ','xが2倍ならyはどうなる？',[
+    P('導入',['yはxに比例する','y=3x']),P('問題',['x: 0,1,2,3,4','y: 0,3,6,9,12','表から気づくこと']),P('活動',['対応する点を座標平面へ','原点を通る直線を確認']),P('まとめ',['比例 y=ax','xとyの比が一定'])],4);
+  add('g1-inverse',1,'関数','反比例：積が一定','activity','反比例を表・式・グラフで捉える','xが2倍になるとyは？',[
+    P('導入',['面積24cm²の長方形','縦x、横y']),P('問題',['xy=24','x=1,2,3,4,6,8','対応表を作る']),P('活動',['xyが一定','グラフの形を観察']),P('まとめ',['反比例 y=a/x','xとyの積が一定'])],4);
+  add('g1-line',1,'図形','作図：垂直二等分線','activity','コンパスを使った基本作図の意味を理解する','なぜ同じ半径の円を2つ描くと真ん中が見つかる？',[
+    P('導入',['線分ABの真ん中を正確に求めたい']),P('作図',['Aを中心に円弧','Bを中心に同じ半径の円弧','交点を結ぶ']),P('確認',['交点はA,Bから等距離','線分ABと直角に交わる']),P('まとめ',['垂直二等分線上の点はA,Bから等距離'])],1);
+  add('g1-angle',1,'図形','空間図形：展開図','activity','立体と展開図を往復して考える','この展開図を組み立てると、どの面が隣り合う？',[
+    P('導入',['立方体を開くと何通り？']),P('問題',['面の対応を考える','向かい合う面を予想']),P('活動',['折る前・折った後を比較','頂点の対応を追う']),P('まとめ',['展開図は立体の面のつながりを平面に表したもの'])],3);
+  add('g1-data',1,'データ','データの活用：代表値','starter','平均値・中央値・最頻値を使い分ける','平均だけでクラスの特徴を語れる？',[
+    P('導入',['データ：4,5,5,6,20']),P('問題',['平均値','中央値','最頻値','どれが代表的？']),P('活動',['外れ値の影響を比較','並べ替えて中央値を確認']),P('まとめ',['目的に応じて代表値を選ぶ'])],1);
+  add('g1-frequency',1,'データ','データの活用：ヒストグラム','activity','分布の形を読み取る','山が2つあるとき、何が考えられる？',[
+    P('導入',['度数分布表を見て特徴を探す']),P('問題',['階級','度数','最頻階級']),P('活動',['ヒストグラムを読む','左右の偏りを見る']),P('まとめ',['分布の形・中心・広がりを言葉にする'])],1);
+  add('g1-review',1,'数と式','中1総復習：式・方程式・関数','summary','既習内容を「関係」でつなぐ','式・方程式・関数は何が違う？',[
+    P('導入',['中1数学を1枚の黒板で整理']),P('整理',['文字式＝数量を表す','方程式＝未知数を求める','関数＝変化・対応を表す']),P('活動',['同じ問題を3つの表現に変換']),P('まとめ',['数学は表現を行き来すると見通しがよくなる'])],1);
+  // ---- 中2 ----
+  add('g2-expression',2,'数と式','式の計算：同類項','starter','文字式の項を整理する','3x+2xはなぜ5x？',[
+    P('導入',['3x+2x','xを同じ種類の箱として考える']),P('問題',['3a+2a','5x-2x','2x+3y']),P('活動',['同類項だけをまとめる','係数に注目']),P('まとめ',['同類項は係数を計算してまとめる'])],1);
+  add('g2-expansion',2,'数と式','式の計算：分配法則','activity','分配法則を図と式で理解する','3(x+2)は何を3倍している？',[
+    P('導入',['3(x+2)を面積で見る']),P('展開',['3x+6','-2(x-5)','5(a+2b)']),P('活動',['図→言葉→式の順に説明']),P('まとめ',['a(b+c)=ab+ac'])],1);
+  add('g2-simultaneous',2,'方程式','連立方程式：加減法','activity','2つの条件を同時に満たす値を求める','x+y=7 と x-y=1 の交点は？',[
+    P('導入',['x+y=7','x-y=1']),P('問題',['2式を足すと何が消える？']),P('活動',['加減法','代入法との違い']),P('まとめ',['2つの式を同時に満たす解を求める'])],4);
+  add('g2-function',2,'関数','一次関数：傾きと切片','starter','傾き・切片をグラフと式で対応させる','y=2x+1の「2」と「1」は何を表す？',[
+    P('導入',['y=ax+b','a：傾き','b：切片']),P('問題',['y=2x+1','y=-x+3','グラフを比較']),P('活動',['aを変える','bを変える','変化を観察']),P('まとめ',['傾き＝変化の割合','切片＝y軸との交点'])],4);
+  add('g2-intersection',2,'関数','一次関数：交点と連立方程式','activity','グラフと連立方程式をつなぐ','2本の直線の交点は何を意味する？',[
+    P('導入',['y=2x+1','y=-x+7']),P('問題',['交点をグラフから予想']),P('活動',['連立方程式でも求める','同じ答えになることを確認']),P('まとめ',['交点＝2つの条件を同時に満たす点'])],4);
+  add('g2-parallel',2,'図形','平行線と角','starter','錯角・同位角の関係を図から説明する','平行なら、なぜこの角が等しい？',[
+    P('導入',['平行な2直線と1本の直線']),P('問題',['同位角','錯角','対頂角']),P('活動',['線を動かして角の変化を見る','条件を言葉にする']),P('まとめ',['平行線では錯角・同位角に関係がある'])],1);
+  add('g2-congruence',2,'図形','三角形の合同','activity','合同条件を根拠として使う','3辺が等しい2つの三角形は必ず合同？',[
+    P('導入',['合同＝形も大きさも同じ']),P('問題',['3辺','2辺とその間の角','1辺とその両端の角']),P('活動',['合同条件を選ぶ','対応する辺・角を色分け']),P('まとめ',['三角形の合同条件を3つ整理'])],1);
+  add('g2-proof',2,'図形','証明：三角形の合同','summary','仮定→根拠→結論の流れを作る','「等しい」と言える根拠はどこ？',[
+    P('導入',['証明は「なぜ？」を積み上げる']),P('問題',['仮定を拾う','合同条件を決める']),P('活動',['穴埋め→自力記述','根拠を書く']),P('まとめ',['仮定→着目→合同条件→結論'])],1);
+  add('g2-prob',2,'確率','確率：場合の数','activity','場合を漏れなく重複なく数える','コイン2枚で表が1枚だけ出る確率は？',[
+    P('導入',['表・裏の組合せ']),P('問題',['樹形図','表を作る']),P('活動',['全ての場合を列挙','条件に合う場合を数える']),P('まとめ',['確率＝起こりうる場合のうち条件に合う場合の割合'])],1);
+  add('g2-data',2,'データ','データ：箱ひげ図','starter','分布の比較を箱ひげ図で行う','中央値が同じでも分布は同じ？',[
+    P('導入',['2クラスのテスト結果']),P('問題',['最小・Q1・中央値・Q3・最大']),P('活動',['箱ひげ図を比較','散らばりを言葉にする']),P('まとめ',['中心だけでなく散らばりを見る'])],1);
+  add('g2-review',2,'関数','中2総復習：一次関数','summary','式・表・グラフを往復する','同じ一次関数を3つの表現で説明しよう',[
+    P('導入',['式・表・グラフ']),P('整理',['傾き','切片','変化の割合']),P('活動',['式→表→グラフ','グラフ→式']),P('まとめ',['3つの表現を往復できれば理解が深い'])],4);
+  // ---- 中3 ----
+  add('g3-expansion',3,'数と式','展開：分配法則を使う','starter','多項式の展開を手順化する','(x+3)(x+2)を面積で説明できる？',[
+    P('導入',['長方形の面積として考える']),P('問題',['(x+3)(x+2)','(a+b)^2']),P('活動',['4つの部分に分ける','同類項を整理']),P('まとめ',['分配法則を2回使う'])],1);
+  add('g3-factor',3,'数と式','因数分解：共通因数','activity','展開の逆操作として因数分解する','6x+9から共通する数を取り出すと？',[
+    P('導入',['6x+9']),P('問題',['3(2x+3)','x^2+5x']),P('活動',['共通因数を見つける','展開して確認']),P('まとめ',['因数分解は展開の逆'])],1);
+  add('g3-root',3,'数と式','平方根：数直線上の√2','starter','平方根を位置として捉える','√2は数直線のどこ？',[
+    P('導入',['1^2=1','2^2=4','√2は？']),P('問題',['1<√2<2','近似値']),P('活動',['正方形の対角線から√2を作る']),P('まとめ',['√aは2乗してaになる正の数'])],1);
+  add('g3-quadratic',3,'方程式','二次方程式：因数分解','activity','因数分解を利用して解く','積が0になる条件を使える？',[
+    P('導入',['x^2-5x+6=0']),P('問題',['(x-2)(x-3)=0']),P('活動',['積が0→どちらかが0','解を代入確認']),P('まとめ',['因数分解→積が0→解'])],1);
+  add('g3-quadratic-function',3,'関数','二次関数：y=ax²','starter','aによるグラフの変化を観察する','aが大きくなると放物線はどうなる？',[
+    P('導入',['y=x²']),P('問題',['y=2x²','y=0.5x²','y=-x²']),P('活動',['aを変えて比較','軸・頂点を見る']),P('まとめ',['aの符号で開く向き、大きさで開き方が変わる'])],4);
+  add('g3-similarity',3,'図形','相似：拡大・縮小','activity','相似な図形の対応を捉える','対応する辺の比はどうなる？',[
+    P('導入',['同じ形で大きさが違う図形']),P('問題',['対応する頂点','相似比']),P('活動',['辺の比をそろえる','面積との関係']),P('まとめ',['対応する辺の比が一定'])],1);
+  add('g3-circle',3,'図形','円：円周角の定理','starter','中心角と円周角の関係を図で理解する','同じ弧に対する円周角はどうなる？',[
+    P('導入',['同じ弧を見込む角']),P('問題',['中心角と円周角']),P('活動',['点を動かして確認','角度測定を使う']),P('まとめ',['円周角＝中心角の1/2'])],1);
+  add('g3-pythagoras',3,'図形','三平方の定理','activity','直角三角形の辺の関係を使う','斜辺を求めるには何を2乗する？',[
+    P('導入',['3-4-5の直角三角形']),P('問題',['a²+b²=c²']),P('活動',['図形を作図','辺の長さを測定']),P('まとめ',['直角三角形ではa²+b²=c²'])],1);
+  add('g3-statistics',3,'データ','標本調査','starter','全体を標本から推測する考え方を理解する','10000個全部を調べなくても割合を推定できる？',[
+    P('導入',['全数調査と標本調査']),P('問題',['母集団','標本','標本の取り方']),P('活動',['偏りのある標本・ない標本を比較']),P('まとめ',['無作為に標本を抽出することが重要'])],1);
+  add('g3-review',3,'数と式','中3総復習：関数・図形・式','summary','3年間の数学を関連付ける','式・関数・図形はどこでつながる？',[
+    P('導入',['3年間の学びを1枚に整理']),P('整理',['式→方程式→関数','図形→相似→円→三平方']),P('活動',['1問を複数の方法で解く']),P('まとめ',['表現を変えると見える関係が変わる'])],1);
+  const allUnits=[...new Set(L.map(x=>x.unit))];
+  function stateForLesson(lesson,page,idx){
+    const st={drawings:[],plots:[],activeMeasures:[],groups:[],labelIndex:0,gridType:lesson.grid,coordStepUnit:1,showCoordLabels:lesson.grid===4,cachedJsFormula:'0.2*x*x',kidsFormulaInputValue:'0.2*x*x',offsetX:0,offsetY:0,scale:1,extBg:{...EXT_DEFAULTS}};
+    const addText=(text,x,y,size=25,color='#fff')=>st.drawings.push({id:'lesson_'+lesson.id+'_'+idx+'_'+Math.random().toString(36).slice(2),type:'text',mX1:x,mY1:y,text,color,fontSize:size,thickness:3,penType:'chalk'});
+    addText(lesson.title,-10,7,31,'#ffff00');
+    const lines=page.lines||[]; lines.forEach((line,i)=>addText(line,-10,5.3-i*0.9,22,i===0?'#00f5d4':'#fff'));
+    // Simple geometric anchors make samples immediately usable as starting boards.
+    if(lesson.unit==='図形' && (idx===1||idx===2)){
+      st.plots.push({id:'A',mx:-4,my:-1,color:'#fff',isFixed:false},{id:'B',mx:0,my:3,color:'#fff',isFixed:false},{id:'C',mx:4,my:-1,color:'#fff',isFixed:false});
+      st.drawings.push({id:'s1_'+Math.random(),type:'segment',mX1:-4,mY1:-1,mX2:0,mY2:3,color:'#fff',thickness:4,penType:'chalk',lineStyle:'solid'});
+      st.drawings.push({id:'s2_'+Math.random(),type:'segment',mX1:0,mY1:3,mX2:4,mY2:-1,color:'#fff',thickness:4,penType:'chalk',lineStyle:'solid'});
+      st.drawings.push({id:'s3_'+Math.random(),type:'segment',mX1:4,mY1:-1,mX2:-4,mY2:-1,color:'#fff',thickness:4,penType:'chalk',lineStyle:'solid'});
+    }
+    if(lesson.unit==='関数' && lesson.grid===4){st.cachedJsFormula=lesson.id.includes('quadratic')?'0.5*x*x':'2*x+1';st.kidsFormulaInputValue=st.cachedJsFormula;}
+    return st;
+  }
+  function loadLesson(id){
+    const lesson=L.find(x=>x.id===id); if(!lesson)return;
+    const pages=lesson.pages.map((pg,i)=>({name:pg.title,state:stateForLesson(lesson,pg,i),note:pg.notes||''}));
+    if(typeof commitCurrentPage==='function')commitCurrentPage();
+    blackboardPages=pages; currentPageIndex=0; applyPageState(pages[0].state); updatePageUI(); drawAll(); closeExtPanels();
+    document.getElementById('bbLessonDetail').innerHTML='<b>'+lesson.title+'</b><br>ねらい：'+lesson.goal+'<br>発問：'+lesson.prompt+'<br><span style="color:#00f5d4">→ 4ページの板書案を読み込みました。必要に応じてそのまま描き足せます。</span>';
+    if(typeof extToast==='function')extToast('「'+lesson.title+'」を読み込みました');
+    localStorage.setItem('bbLastLesson',lesson.id);
+  }
+  window.bbOpenLessonLibrary=()=>{document.getElementById('bbLessonLibrary').classList.add('open');bbRenderLibrary()};
+  window.bbCloseLessonLibrary=()=>document.getElementById('bbLessonLibrary').classList.remove('open');
+  window.bbRenderLibrary=function(){
+    const g=document.getElementById('bbLibGrade').value,u=document.getElementById('bbLibUnit').value,t=document.getElementById('bbLibType').value,q=(document.getElementById('bbLibSearch').value||'').toLowerCase();
+    const arr=L.filter(x=>(g==='all'||String(x.grade)===g)&&(u==='all'||x.unit===u)&&(t==='all'||x.type===t)&&(!q||(x.title+x.goal+x.prompt).toLowerCase().includes(q)));
+    document.getElementById('bbLessonLibraryGrid').innerHTML=arr.map(x=>`<button class="bb-lesson-card2" onclick="bbSelectLesson('${x.id}')"><b>中${x.grade}・${x.title}</b><small>${x.goal}</small><span class="tag">${x.unit}　${x.type==='starter'?'導入':x.type==='activity'?'活動':'まとめ'}</span></button>`).join('')||'<div style="color:#aaa;padding:15px">該当するサンプルがありません。</div>';
+  };
+  window.bbSelectLesson=function(id){const x=L.find(a=>a.id===id);if(!x)return;document.getElementById('bbLessonDetail').innerHTML=`<b>中${x.grade}・${x.title}</b><br>ねらい：${x.goal}<br>発問：${x.prompt}<div class="bb-lesson-actions"><button onclick="bbLoadLesson('${id}')">▶ この授業を読み込む</button><button onclick="bbLoadLesson('${id}');bbCloseLessonLibrary()">開始して閉じる</button></div>`};
+  window.bbLoadLesson=loadLesson;
+  const grade=document.getElementById('bbLibGrade'),unit=document.getElementById('bbLibUnit'),search=document.getElementById('bbLibSearch'),type=document.getElementById('bbLibType');
+  allUnits.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;unit.appendChild(o)});
+  [grade,unit,search,type].forEach(el=>el&&el.addEventListener('input',bbRenderLibrary));
+  // Add library button to lesson panel without replacing existing controls.
+  const lessonPanel=document.getElementById('ext-lesson');
+  if(lessonPanel) lessonPanel.insertAdjacentHTML('beforeend','<hr style="border-color:#29382f;margin:14px 0"><button class="ext-btn" onclick="bbOpenLessonLibrary()">📚 中1〜中3 授業サンプル32本</button>');
+  // Make the existing demo cards open the library instead of only loading tiny demos.
+  // Preserve their original functions; add a dedicated button for the full library.
+  // Text rendering: the original app already stores text objects in demo pages, so render them here.
+  const _oldDrawGeom=window.drawGeomObject;
+  if(typeof _oldDrawGeom==='function'){
+    window.drawGeomObject=function(d){
+      if(d.type==='text'){
+        ctx.save(); ctx.fillStyle=d.color||'#fff'; ctx.font=`${d.fontSize||24}px sans-serif`; ctx.textBaseline='top';
+        const lines=String(d.text||'').split(/\\n|\n/); const s=toScreen(d.mX1||0,d.mY1||0);
+        lines.forEach((line,i)=>ctx.fillText(line,s.x,s.y+i*(d.fontSize||24)*1.35)); ctx.restore(); return;
+      }
+      return _oldDrawGeom(d);
+    };
+  }
+  // Replace the welcome/demo button label via a safe UI addition.
+  const tools=document.getElementById('ext-tools');
+  if(tools)tools.insertAdjacentHTML('beforeend','<button class="ext-btn" style="margin-top:8px" onclick="bbOpenLessonLibrary()">📚 授業サンプルを探す</button>');
+  // Helpful keyboard shortcut: L opens lesson library.
+  document.addEventListener('keydown',e=>{if((e.key==='l'||e.key==='L') && !e.ctrlKey && !e.metaKey && !e.altKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)){bbOpenLessonLibrary()}});
+  // Welcome screen gains direct access to the library if it exists.
+  const welcome=document.getElementById('bbWelcome');
+  if(welcome)welcome.insertAdjacentHTML('beforeend','<button class="ext-btn" style="margin-top:10px" onclick="q(\'bbWelcome\').classList.add(\'hidden\');bbOpenLessonLibrary()">📚 授業サンプルから始める</button>');
+  // Expose count for future UI/tests.
+  window.bbLessonLibrary=L;
+  console.log('Lesson library loaded:',L.length);
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+}
+</script>
+
+</body>
+</html>
